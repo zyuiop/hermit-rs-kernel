@@ -147,7 +147,7 @@ pub fn boot_processor_init() {
 		if sev.is_some_and(|sev| sev.sev_enabled) {
 			info!("Enabled AMD encrypted memory support! ({sev:?})");
 		};
-		
+
 		sev
 	} else { None };
 

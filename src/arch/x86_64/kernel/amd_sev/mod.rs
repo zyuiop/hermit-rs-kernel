@@ -18,6 +18,8 @@ pub mod decrypted_allocator;
 pub mod detection;
 pub(crate) mod sev_guest_ioctl;
 
+mod secrets;
+
 use bit_field::BitField;
 use hermit_sync::OnceCell;
 use x86_64::registers::model_specific::Msr;
@@ -108,4 +110,5 @@ pub fn enable_sev<'a>() -> Option<&'a SevState> {
 pub fn post_init() {
 	ghcb_protocol::allocated_ghcb::init_ghcb();
 	sev_guest_ioctl::init();
+	secrets::init();
 }
