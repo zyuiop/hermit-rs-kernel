@@ -149,7 +149,13 @@ pub fn boot_processor_init() {
 		#[cfg(feature = "vga")]
 		vga::init();
 	}
+	
+	let sev = amd_sev::sev_init();
+	if let Some(sev) = sev {
+		info!("Enabled AMD encrypted memory support! (sev: {}, sev-snp: {})", sev.sev_enabled(), sev.snp_enabled())
+	}
 
+	info!("init mm...");
 	crate::mm::init();
 	crate::mm::print_information();
 	CoreLocal::get().add_irq_counter();
