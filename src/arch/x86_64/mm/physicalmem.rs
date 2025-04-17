@@ -2,6 +2,7 @@ use core::sync::atomic::{AtomicUsize, Ordering};
 
 use free_list::{AllocError, FreeList, PageLayout, PageRange};
 use hermit_sync::InterruptTicketMutex;
+use x86_64::structures::amd_sev::sev_state;
 use memory_addresses::{PhysAddr, VirtAddr};
 use x86_64::structures::paging::frame::PhysFrameRangeInclusive;
 use x86_64::structures::paging::mapper::{FlagUpdateError, MapToError, MapperFlush};
@@ -32,8 +33,12 @@ unsafe fn init_frame_range(frame_range: PageRange) {
 		physical_free_list.deallocate(frame_range).unwrap();
 	}
 
-	let flags = PageTableFlags::PRESENT | PageTableFlags::WRITABLE;
-	insert_frames_2mib(frames, flags);
+	let mut flags = PageTableFlags::PRESENT | PageTableFlags::WRITABLE;
+
+	if let Some(_) = sev_state() {
+		flags.set_encrypted(true);
+	}
+
 	insert_frames(frames, flags);
 
 	TOTAL_MEMORY.fetch_add(frame_range.len().get(), Ordering::Relaxed);
