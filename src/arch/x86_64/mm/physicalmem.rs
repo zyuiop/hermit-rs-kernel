@@ -4,9 +4,8 @@ use free_list::{AllocError, FreeList, PageLayout, PageRange};
 use hermit_sync::InterruptTicketMutex;
 use memory_addresses::{PhysAddr, VirtAddr};
 use x86_64::structures::paging::frame::PhysFrameRangeInclusive;
-use x86_64::structures::paging::mapper::MapToError;
-use x86_64::structures::paging::{Mapper, PageTableFlags, PhysFrame, Size1GiB, Size2MiB};
-
+use x86_64::structures::paging::mapper::{FlagUpdateError, MapToError, MapperFlush};
+use x86_64::structures::paging::{Mapper, OffsetPageTable, Page, PageTableFlags, PhysFrame, Size1GiB, Size2MiB};
 use crate::arch::mm::paging::identity_mapped_page_table;
 use crate::arch::x86_64::mm::paging::{BasePageSize, PageSize};
 use crate::{env, mm};
@@ -35,11 +34,14 @@ unsafe fn init_frame_range(frame_range: PageRange) {
 
 	let flags = PageTableFlags::PRESENT | PageTableFlags::WRITABLE;
 	insert_frames_2mib(frames, flags);
+	insert_frames(frames, flags);
 
 	TOTAL_MEMORY.fetch_add(frame_range.len().get(), Ordering::Relaxed);
 }
 
-fn insert_frames_2mib(frames: PhysFrameRangeInclusive<Size2MiB>, flags: PageTableFlags) {
+fn insert_frames<S: PageSize + core::fmt::Debug> (frames: PhysFrameRangeInclusive<S>, flags: PageTableFlags)
+	where OffsetPageTable<'static>: Mapper<S> {
+
 	let mut physical_free_list = PHYSICAL_FREE_LIST.lock();
 	for frame in frames {
 		let mapper_result = unsafe {
@@ -47,36 +49,41 @@ fn insert_frames_2mib(frames: PhysFrameRangeInclusive<Size2MiB>, flags: PageTabl
 		};
 
 		match mapper_result {
-			Ok(mapper_flush) => mapper_flush.flush(),
-			Err(MapToError::PageAlreadyMapped(current_frame)) => assert_eq!(current_frame, frame),
-			Err(_) => {
-				drop(physical_free_list);
+			Ok(mapper_flush) => {
+				info!("Allocated page: {mapper_flush:?}");
+				mapper_flush.flush()
+			},
+			Err(MapToError::PageAlreadyMapped(current_frame)) => {
+				assert_eq!(current_frame, frame);
 
-				// TODO: check for 1Gib support
-				insert_frames_1gib(PhysFrameRangeInclusive {
-					start: PhysFrame::containing_address(frame.start_address()),
-					end: PhysFrame::containing_address(frames.end.start_address())
-				}, flags);
+				let page: Page<S> = Page::containing_address(x86_64::VirtAddr::new(frame.start_address().as_u64()));
+				let sub_result = unsafe {
+					identity_mapped_page_table().update_flags(page, flags)
+				};
 
-				break;
+				match sub_result {
+					Ok(mapper_flush) => mapper_flush.flush(),
+					Err(err) => {
+						panic!("could not update flags for frame {frame:?}: {err:?} (page size: {})", S::DEBUG_STR);
+					}
+				}
+
+			},
+			Err(err) => {
+				// Upgrade tp 1Gib frames
+				if S::SIZE != Size1GiB::SIZE {
+					drop(physical_free_list);
+
+					// TODO: check for 1Gib support
+					insert_frames::<Size1GiB>(PhysFrameRangeInclusive {
+						start: PhysFrame::containing_address(frame.start_address()),
+						end: PhysFrame::containing_address(frames.end.start_address())
+					}, flags);
+					break;
+				} else {
+					panic!("could not identity-map {frame:?}: {err:?} (page size: {})", S::DEBUG_STR);
+				}
 			}
-		}
-	}
-}
-
-
-fn insert_frames_1gib(frames: PhysFrameRangeInclusive<Size1GiB>, flags: PageTableFlags) {
-	let mut physical_free_list = PHYSICAL_FREE_LIST.lock();
-
-	for frame in frames {
-		let mapper_result = unsafe {
-			identity_mapped_page_table().identity_map(frame, flags, &mut *physical_free_list)
-		};
-
-		match mapper_result {
-			Ok(mapper_flush) => mapper_flush.flush(),
-			Err(MapToError::PageAlreadyMapped(current_frame)) => assert_eq!(current_frame, frame),
-			Err(err) => panic!("could not identity-map {frame:?}: {err:?}"),
 		}
 	}
 }
