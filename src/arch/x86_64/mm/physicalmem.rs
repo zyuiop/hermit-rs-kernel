@@ -5,7 +5,7 @@ use hermit_sync::InterruptTicketMutex;
 use memory_addresses::{PhysAddr, VirtAddr};
 use x86_64::structures::paging::frame::PhysFrameRangeInclusive;
 use x86_64::structures::paging::mapper::MapToError;
-use x86_64::structures::paging::{Mapper, PageTableFlags, PhysFrame, Size2MiB};
+use x86_64::structures::paging::{Mapper, PageTableFlags, PhysFrame, Size1GiB, Size2MiB};
 
 use crate::arch::mm::paging::identity_mapped_page_table;
 use crate::arch::x86_64::mm::paging::{BasePageSize, PageSize};
@@ -28,13 +28,46 @@ unsafe fn init_frame_range(frame_range: PageRange) {
 		PhysFrameRangeInclusive::<Size2MiB> { start, end }
 	};
 
-	let mut physical_free_list = PHYSICAL_FREE_LIST.lock();
-
 	unsafe {
+		let mut physical_free_list = PHYSICAL_FREE_LIST.lock();
 		physical_free_list.deallocate(frame_range).unwrap();
 	}
 
 	let flags = PageTableFlags::PRESENT | PageTableFlags::WRITABLE;
+	insert_frames_2mib(frames, flags);
+
+	TOTAL_MEMORY.fetch_add(frame_range.len().get(), Ordering::Relaxed);
+}
+
+fn insert_frames_2mib(frames: PhysFrameRangeInclusive<Size2MiB>, flags: PageTableFlags) {
+	let mut physical_free_list = PHYSICAL_FREE_LIST.lock();
+	for frame in frames {
+		let mapper_result = unsafe {
+			identity_mapped_page_table().identity_map(frame, flags, &mut *physical_free_list)
+		};
+
+		match mapper_result {
+			Ok(mapper_flush) => mapper_flush.flush(),
+			Err(MapToError::PageAlreadyMapped(current_frame)) => assert_eq!(current_frame, frame),
+			Err(_) => {
+				drop(physical_free_list);
+
+				// TODO: check for 1Gib support
+				insert_frames_1gib(PhysFrameRangeInclusive {
+					start: PhysFrame::containing_address(frame.start_address()),
+					end: PhysFrame::containing_address(frames.end.start_address())
+				}, flags);
+
+				break;
+			}
+		}
+	}
+}
+
+
+fn insert_frames_1gib(frames: PhysFrameRangeInclusive<Size1GiB>, flags: PageTableFlags) {
+	let mut physical_free_list = PHYSICAL_FREE_LIST.lock();
+
 	for frame in frames {
 		let mapper_result = unsafe {
 			identity_mapped_page_table().identity_map(frame, flags, &mut *physical_free_list)
@@ -46,8 +79,6 @@ unsafe fn init_frame_range(frame_range: PageRange) {
 			Err(err) => panic!("could not identity-map {frame:?}: {err:?}"),
 		}
 	}
-
-	TOTAL_MEMORY.fetch_add(frame_range.len().get(), Ordering::Relaxed);
 }
 
 fn detect_from_fdt() -> Result<(), ()> {
