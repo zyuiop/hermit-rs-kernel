@@ -6,6 +6,7 @@ use core::ops::Range;
 
 use align_address::Align;
 use hermit_sync::Lazy;
+use x86_64::structures::amd_sev::sev_state;
 pub use memory_addresses::{PhysAddr, VirtAddr};
 
 use self::allocator::LockedAllocator;
@@ -255,6 +256,11 @@ pub(crate) fn allocate(size: usize, no_execution: bool) -> VirtAddr {
 	let count = size / BasePageSize::SIZE as usize;
 	let mut flags = PageTableEntryFlags::empty();
 	flags.normal().writable();
+
+	if sev_state().is_some() {
+		flags.set_encrypted(true);
+	}
+
 	if no_execution {
 		flags.execute_disable();
 	}
