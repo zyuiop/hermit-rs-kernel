@@ -1,16 +1,19 @@
-#[cfg(feature = "common-os")]
 use core::arch::asm;
 use core::ptr;
 use core::sync::atomic::{AtomicPtr, AtomicU32, Ordering};
 use core::task::Waker;
 
 use hermit_entry::boot_info::{PlatformInfo, RawBootInfo};
+use raw_cpuid::CpuId;
 use memory_addresses::{PhysAddr, VirtAddr};
-use x86_64::registers::control::{Cr0, Cr4};
-
+use x86_64::registers::control::{Cr0, Cr3, Cr4};
+use x86_64::registers::model_specific::Msr;
+use x86_64::structures::amd_sev::sev_init;
+use crate::arch::kernel::amd_sev::{ghcb_negotiate_protocol, init_ghcb};
 use self::serial::SerialPort;
 use crate::arch::x86_64::kernel::core_local::*;
 use crate::env::{self, is_uhyve};
+use crate::env::kernel::amd_sev::print_current_ghcb;
 
 #[cfg(feature = "acpi")]
 pub mod acpi;
@@ -35,6 +38,7 @@ mod syscall;
 pub(crate) mod systemtime;
 #[cfg(feature = "vga")]
 mod vga;
+pub(crate) mod amd_sev;
 
 pub(crate) struct Console {
 	serial_port: SerialPort,
@@ -142,17 +146,20 @@ pub fn args() -> Option<&'static str> {
 /// Real Boot Processor initialization as soon as we have put the first Welcome message on the screen.
 #[cfg(target_os = "none")]
 pub fn boot_processor_init() {
+	let sev = sev_init();
+	if let Some(sev) = sev {
+		info!("Enabled AMD encrypted memory support! ({sev:?})");
+	}
+	ghcb_negotiate_protocol();
+	// amd_sev::setup_early_idt_64b();
+	// amd_sev::ghcb_request_exit(69);
+
 	processor::detect_features();
 	processor::configure();
 
 	if cfg!(feature = "vga") && !env::is_uhyve() {
 		#[cfg(feature = "vga")]
 		vga::init();
-	}
-	
-	let sev = amd_sev::sev_init();
-	if let Some(sev) = sev {
-		info!("Enabled AMD encrypted memory support! (sev: {}, sev-snp: {})", sev.sev_enabled(), sev.snp_enabled())
 	}
 
 	info!("init mm...");
@@ -162,13 +169,18 @@ pub fn boot_processor_init() {
 	env::init();
 	gdt::add_current_core();
 	interrupts::load_idt();
-	pic::init();
+	// pic::init(); // TODO: init PIC after interrupts have been installed (VC handler)
+	interrupts::install();
+
+	info!("let me cause a #VC");
+
+	amd_sev::ghcb_request_exit(69);
+
 
 	processor::detect_frequency();
 	processor::print_information();
 	debug!("Cr0 = {:?}", Cr0::read());
 	debug!("Cr4 = {:?}", Cr4::read());
-	interrupts::install();
 	systemtime::init();
 
 	if is_uhyve_with_pci() || !is_uhyve() {
