@@ -8,6 +8,7 @@ use core::ops::Range;
 
 use align_address::Align;
 use hermit_sync::Lazy;
+use x86_64::structures::amd_sev::sev_state;
 pub use memory_addresses::{PhysAddr, VirtAddr};
 
 use self::allocator::LockedAllocator;
