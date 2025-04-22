@@ -21,6 +21,7 @@ use crate::drivers::InterruptHandlerQueue;
 use crate::drivers::mmio::get_interrupt_handlers;
 #[cfg(feature = "pci")]
 use crate::drivers::pci::get_interrupt_handlers;
+use crate::env::kernel::amd_sev::vmm_interrupt_exception;
 use crate::scheduler::{self, CoreId};
 
 static IRQ_HANDLERS: OnceCell<HashMap<u8, InterruptHandlerQueue, RandomState>> = OnceCell::new();
@@ -150,13 +151,16 @@ pub(crate) fn install() {
 		idt.non_maskable_interrupt
 			.set_handler_fn(nmi_exception)
 			.set_stack_index(2);
+		idt.vmm_communication_exception
+			.set_handler_fn(vmm_interrupt_exception)
+			.set_stack_index(1);
 		idt.machine_check
 			.set_handler_fn(machine_check_exception)
 			.set_stack_index(3);
 		idt.device_not_available
 			.set_handler_fn(device_not_available_exception)
 			.set_stack_index(0);
-	}
+	};
 
 	IRQ_NAMES.lock().insert(7, "FPU");
 }

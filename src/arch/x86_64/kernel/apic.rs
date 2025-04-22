@@ -14,11 +14,12 @@ use align_address::Align;
 use arch::x86_64::kernel::core_local::*;
 use arch::x86_64::kernel::{interrupts, processor};
 use hermit_sync::{OnceCell, SpinMutex, without_interrupts};
+use x86_64::instructions::segmentation::{Segment, CS};
 use memory_addresses::{AddrRange, PhysAddr, VirtAddr};
 #[cfg(feature = "smp")]
 use x86_64::registers::control::Cr3;
 use x86_64::registers::model_specific::Msr;
-
+use x86_64::structures::amd_sev::sev_state;
 use super::interrupts::IDT;
 use crate::arch::x86_64::kernel::CURRENT_STACK_ADDRESS;
 #[cfg(feature = "acpi")]
@@ -32,6 +33,7 @@ use crate::config::*;
 use crate::mm::virtualmem;
 use crate::scheduler::CoreId;
 use crate::{arch, env, scheduler};
+use crate::env::kernel::amd_sev;
 
 /// APIC Location and Status (R/W) See Table 35-2. See Section 10.4.4, Local APIC  Status and Location.
 const IA32_APIC_BASE: Msr = Msr::new(0x1b);
@@ -803,6 +805,16 @@ pub fn boot_application_processors() {
 	// Now wake up each application processor.
 	let apic_ids = CPU_LOCAL_APIC_IDS.lock();
 	let core_id = core_id();
+
+
+	if apic_ids.len() > 1 && sev_state().is_some_and(|sev| sev.sev_es_enabled) {
+		unsafe {
+			let table = amd_sev::handler_ap::ap_jump_table_get().unwrap();
+			let table = table.as_mut().unwrap();
+
+			table.set_addr(SMP_BOOT_CODE_ADDRESS.as_u64() as u32);
+		}
+	}
 
 	for (core_id_to_boot, &apic_id) in apic_ids.iter().enumerate() {
 		let core_id_to_boot = core_id_to_boot as u32;

@@ -1,10 +1,9 @@
 use core::task::Waker;
 use core::{fmt, mem};
-
 use heapless::Vec;
 use hermit_sync::{InterruptTicketMutex, Lazy};
 
-use crate::arch;
+use crate::{arch, console};
 
 const SERIAL_BUFFER_SIZE: usize = 256;
 
