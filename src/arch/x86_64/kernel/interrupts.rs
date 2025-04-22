@@ -90,7 +90,7 @@ pub(crate) fn enable_and_wait() {
 pub(crate) fn install() {
 	let mut idt = IDT.lock();
 
-	set_general_handler!(&mut *idt, abort, 0..32);
+	// set_general_handler!(&mut *idt, abort, 0..32);
 	// set_general_handler!(&mut *idt, handle_interrupt, 32..);
 
 	unsafe {

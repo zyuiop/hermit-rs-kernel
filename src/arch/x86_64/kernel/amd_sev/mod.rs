@@ -121,12 +121,7 @@ struct ghcb {
 } __packed;
  */
 
-pub fn ghcb_request_exit(exit_code: u8) -> ! {
-    GHCB_MSR.send_request_noret(GhcbMsrRequest::RequestTermination {
-        reason: exit_code,
-        source: 2,
-    });
-}
+pub use x86_64::structures::amd_sev::ghcb_msr_protocol::ghcb_request_exit;
 
 const MAX_GHCB_PROTOCOL_VERSION: u16 = 1;
 

@@ -1,7 +1,7 @@
 use core::arch::asm;
 use x86_64::structures::amd_sev::ghcb_protocol::{checked_vmgexit, Ghcb, GhcbExitCode, GhcbProtocolError};
 use crate::env::kernel::amd_sev::ghcb_request_exit;
-use crate::env::kernel::amd_sev::vc_handler::error_exit_codes;
+use crate::env::kernel::amd_sev::vc_handler::{error_exit_codes, InterruptStackFrame};
 use super::instruction_parser::{InstructionData, InstructionRepetitionMode, Size};
 use super::opcodes::io_opcode;
 use super::vc_handler::RegistersData;
@@ -10,7 +10,7 @@ use super::vc_handler::RegistersData;
 pub fn handle_ioio(
 	ghcb: &mut Ghcb,
 	instruction_data: &mut InstructionData,
-	registers_data: &mut RegistersData,
+	registers_data: &mut InterruptStackFrame,
 ) -> Result<(), GhcbProtocolError>{
 	ghcb.clear();
 
@@ -27,7 +27,7 @@ pub fn handle_ioio(
 			0
 		} else {
 			let mask = info.flags.data_mask();
-			registers_data.rax & mask
+			registers_data.registers.rax & mask
 		};
 
 		ghcb.save.set_valid_field(& ghcb.save.rax);
@@ -39,7 +39,7 @@ pub fn handle_ioio(
 				ghcb_request_exit(error_exit_codes::EXIT_VC_ERROR);
 				panic!("missing rax return value for IN VMM instruction!")
 			}
-			registers_data.rax = ghcb.save.rax;
+			registers_data.registers.rax = ghcb.save.rax;
 		}
 
 		Ok(())
