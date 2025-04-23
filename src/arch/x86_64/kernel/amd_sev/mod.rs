@@ -12,14 +12,15 @@ macro_rules! sev_exit {
 
 
 pub mod instruction_parser;
-pub mod ioio_handler;
+pub mod handler_ioio;
 mod opcodes;
-pub(crate) mod vc_handler;
+pub(crate) mod handler;
 mod exitcodes;
 pub(crate) mod paravirt_uart;
 pub mod ioio_explicit;
+mod handler_cpuid;
 
-pub use vc_handler::vmm_interrupt_exception;
+pub use handler::vmm_interrupt_exception;
 
 use x86_64::instructions::interrupts::without_interrupts;
 use x86_64::structures::paging::{Mapper, Page, PageSize, Size4KiB, Translate};
@@ -31,14 +32,6 @@ use crate::arch::interrupts::{ExceptionStackFrame};
 use crate::arch::{BasePageSize};
 use crate::arch::mm::paging::{identity_mapped_page_table};
 use crate::{mm};
-
-#[repr(u16)]
-#[derive(Copy, Clone, Debug, PartialEq)]
-enum SvmExitCodes {
-    IOIO = 0x7b
-}
-
-
 
 /* 
 #define GHCB_SHARED_BUF_SIZE	2032
@@ -56,7 +49,7 @@ struct ghcb {
  */
 
 pub use x86_64::structures::amd_sev::ghcb_msr_protocol::ghcb_request_exit;
-use crate::env::kernel::amd_sev::vc_handler::error_exit_codes;
+use crate::env::kernel::amd_sev::handler::error_exit_codes;
 
 const MAX_GHCB_PROTOCOL_VERSION: u16 = 1;
 

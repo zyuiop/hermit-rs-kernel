@@ -1,7 +1,7 @@
 use core::arch::asm;
 use core::slice;
 use x86_64::structures::amd_sev::ghcb_msr_protocol::ghcb_request_exit;
-use crate::arch::kernel::amd_sev::vc_handler::error_exit_codes;
+use crate::arch::kernel::amd_sev::handler::error_exit_codes;
 use crate::env::kernel::amd_sev::opcodes::{opcode_prefix, RegisterExtensions};
 
 const MAX_INSTRUCTION_LENGTH: usize = 15;
@@ -94,7 +94,6 @@ impl InstructionData {
                     self.repetition_mode = InstructionRepetitionMode::RepZ
                 }
                 opcode_prefix::TWO_BYTE_ESCAPE => {
-                    self.offset += 1; // Skip the current opcode
                     self.opcode_bytes = 2;
                     self.opcode_offset = self.offset;
                     return;
@@ -144,16 +143,13 @@ impl InstructionData {
     }
 
     pub unsafe fn read_opcode(&mut self) -> u16 {
-        let opcode_ptr = unsafe { self.base_ptr.add(self.offset) };
+        let opcode = unsafe { self.read_bytes(self.opcode_bytes as usize) };
 
-        let result = if self.opcode_bytes == 1 {
-            unsafe { (*opcode_ptr) as u16 }
+        if opcode.len() == 1 {
+            opcode[0] as u16
         } else {
-            unsafe { *opcode_ptr.cast() }
-        };
-
-        self.advance(self.opcode_bytes as usize);
-        result
+            (opcode[0] as u16) << 8 | (opcode[1] as u16)
+        }
     }
 
     pub fn advance(&mut self, offset: usize) {

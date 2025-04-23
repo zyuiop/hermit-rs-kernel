@@ -81,7 +81,7 @@ impl SerialPort {
 					s.send(data);
 				}
 			}
-			SerialInner::AmdSev(s) => {				
+			SerialInner::AmdSev(s) => {
 				for &data in buf {
 					s.send(data);
 				}

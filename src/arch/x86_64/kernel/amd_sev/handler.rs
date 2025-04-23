@@ -4,13 +4,13 @@ use core::sync::atomic::AtomicU64;
 use core::sync::atomic::Ordering;
 use x86_64::instructions::interrupts::without_interrupts;
 use x86_64::structures::amd_sev::ghcb_msr_protocol::{vmgexit, GhcbMsrRequest, GHCB_MSR};
-use x86_64::structures::amd_sev::ghcb_protocol::Ghcb;
+use x86_64::structures::amd_sev::ghcb_protocol::{Ghcb, GhcbExitCode, GhcbProtocolError, GhcbSaveArea};
 use x86_64::structures::idt::InterruptStackFrameValue;
 use crate::arch::interrupts::ExceptionStackFrame;
 use crate::arch::kernel::amd_sev::{ghcb_request_exit, instruction_parser, with_ghcb};
-use crate::arch::kernel::amd_sev::ioio_handler::handle_ioio;
+use crate::arch::kernel::amd_sev::handler_cpuid::CpuIdHandler;
+use crate::env::kernel::amd_sev::handler_ioio::IoIoHandler;
 use crate::env::kernel::amd_sev::instruction_parser::InstructionData;
-use crate::env::kernel::amd_sev::SvmExitCodes;
 
 #[naked]
 pub extern "x86-interrupt" fn vmm_interrupt_exception(
@@ -98,7 +98,7 @@ pub extern "C" fn ghcb_debug_data(inf1: u64, inf2: u64) {
     }
 }
 
-
+#[derive(Debug)]
 #[repr(C)]
 pub struct SavedRegisters {
     pub rax: u64,
@@ -113,6 +113,7 @@ pub struct SavedRegisters {
     pub r11: u64,
 }
 
+#[derive(Debug)]
 #[repr(C)]
 pub struct InterruptStackFrame {
     pub registers: SavedRegisters,
@@ -125,6 +126,7 @@ static CTR: AtomicU64 = AtomicU64::new(0);
 extern "C" fn vmm_interrupt_exception_inner(
     stack_frame: &mut InterruptStackFrame
 ) {
+    debug!("VC# HANDLE: {stack_frame:#?}");
     without_interrupts(|| {
         with_ghcb(|ghcb| {
             let mut instruction = InstructionData::new(stack_frame.exception.instruction_pointer.as_ptr());
@@ -134,6 +136,7 @@ extern "C" fn vmm_interrupt_exception_inner(
             stack_frame.exception.instruction_pointer += instruction.offset() as u64;
         });
     });
+    debug!("VC# handle done - return address: {:#?}", stack_frame.exception.instruction_pointer);
 }
 
 /// Custom exit codes to help with debugging
@@ -155,7 +158,23 @@ pub mod error_exit_codes {
     pub const EXIT_OTHER: u8 = 0xff;
 }
 
-fn do_handle(registers_data: &mut InterruptStackFrame,
+pub trait VcHandler {
+    fn handle(&self,
+              frame: &mut InterruptStackFrame,
+              ghcb: &mut Ghcb,
+              instruction_data: &mut InstructionData) -> Result<(), GhcbProtocolError>;
+}
+
+const HANDLERS: [Option<&'static dyn VcHandler>; 0xB0] = {
+    let mut base: [Option<&'static dyn VcHandler>; 0xB0] = [None; 0xB0];
+
+    base[GhcbExitCode::IoIoProtocol as usize] = Some(&IoIoHandler);
+    base[GhcbExitCode::CPUID as usize] = Some(&CpuIdHandler);
+
+    base
+};
+
+fn do_handle(stack_frame: &mut InterruptStackFrame,
              instruction_data: &mut InstructionData,
              code: u64,
              ghcb: &mut Ghcb) {
@@ -165,14 +184,11 @@ fn do_handle(registers_data: &mut InterruptStackFrame,
 
     // Read the exception information
     let exit_code = (code & 0xffff) as u16;
+    let handler = HANDLERS.get(exit_code as usize);
 
-    let result = match exit_code {
-        x if x == SvmExitCodes::IOIO as u16 => {
-            handle_ioio(ghcb, instruction_data, registers_data)
-        },
-        other => {
-            sev_exit!(error_exit_codes::EXIT_VC_UNHANDLED, "unhandled #VC event 0x{:x}", code)
-        }
+    let result = match handler {
+        Some(Some(handler)) => handler.handle(stack_frame, ghcb, instruction_data),
+        _ => sev_exit!(error_exit_codes::EXIT_VC_UNHANDLED, "unhandled #VC event 0x{:x}", exit_code)
     };
 
     if let Err(e) = result {

@@ -1,6 +1,6 @@
 use x86_64::instructions::interrupts::without_interrupts;
 use x86_64::structures::amd_sev::ghcb_protocol::{checked_vmgexit, error_exit_codes, Ghcb, GhcbExitCode, GhcbProtocolError};
-use super::ioio_handler::{IoIoExitInfo,IoIoExitFlags};
+use super::handler_ioio::{IoIoExitInfo, IoIoExitFlags};
 use super::with_ghcb;
 
 pub struct IoIoExplicitProtocolExit<'a> {

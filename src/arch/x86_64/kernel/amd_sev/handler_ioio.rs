@@ -3,48 +3,49 @@ use x86_64::structures::amd_sev::ghcb_msr_protocol::vmgexit;
 use x86_64::structures::amd_sev::ghcb_protocol::{checked_vmgexit, Ghcb, GhcbExitCode, GhcbProtocolError};
 use crate::arch::kernel::amd_sev::with_ghcb;
 use crate::env::kernel::amd_sev::ghcb_request_exit;
-use crate::env::kernel::amd_sev::vc_handler::{error_exit_codes, InterruptStackFrame, SavedRegisters};
+use crate::env::kernel::amd_sev::handler::{error_exit_codes, InterruptStackFrame, SavedRegisters, VcHandler};
 use super::instruction_parser::{InstructionData, InstructionRepetitionMode, Size};
 use super::opcodes::io_opcode;
 
-/// Handler for IOIO (0x7b) errors
-pub fn handle_ioio(
-	ghcb: &mut Ghcb,
-	instruction_data: &mut InstructionData,
-	registers_data: &mut InterruptStackFrame,
-) -> Result<(), GhcbProtocolError>{
-	ghcb.clear();
+#[derive(Debug)]
+pub struct IoIoHandler;
 
-	// Reference: https://github.com/tianocore/edk2/blob/master/OvmfPkg/Library/CcExitLib/CcExitVcHandler.c#L910
+impl VcHandler for IoIoHandler {
+	fn handle(&self, frame: &mut InterruptStackFrame, ghcb: &mut Ghcb, instruction_data: &mut InstructionData) -> Result<(), GhcbProtocolError> {
+		ghcb.clear();
 
-	let info = IoIoExitInfo::from_instruction(instruction_data, &registers_data.registers);
+		// Reference: https://github.com/tianocore/edk2/blob/master/OvmfPkg/Library/CcExitLib/CcExitVcHandler.c#L910
 
-	if info.flags.contains(IoIoExitFlags::STRING) {
-		ghcb_request_exit(error_exit_codes::EXIT_VC_NOT_IMPLEMENTED);
-		todo!("string mode")
-	} else {
-		/* is not in string mode */
-		ghcb.save.rax = if info.flags.contains(IoIoExitFlags::INPUT) {
-			0
+		let info = IoIoExitInfo::from_instruction(instruction_data, &frame.registers);
+
+		if info.flags.contains(IoIoExitFlags::STRING) {
+			ghcb_request_exit(error_exit_codes::EXIT_VC_NOT_IMPLEMENTED);
+			todo!("string mode")
 		} else {
-			let mask = info.flags.data_mask();
-			registers_data.registers.rax & mask
-		};
+			/* is not in string mode */
+			ghcb.save.rax = if info.flags.contains(IoIoExitFlags::INPUT) {
+				0
+			} else {
+				let mask = info.flags.data_mask();
+				frame.registers.rax & mask
+			};
 
-		ghcb.save.set_valid_field(& ghcb.save.rax);
+			ghcb.save.set_valid_field(& ghcb.save.rax);
 
-		checked_vmgexit(ghcb, GhcbExitCode::IoIoProtocol, u32::from(&info) as u64, 0)?;
+			checked_vmgexit(ghcb, GhcbExitCode::IoIoProtocol, u32::from(&info) as u64, 0)?;
 
-		if info.flags.contains(IoIoExitFlags::INPUT) {
-			if !ghcb.save.is_valid_field(& ghcb.save.rax) {
-				sev_exit!(error_exit_codes::EXIT_VC_ERROR, "invalid VMM response: rax is invalid");
+			if info.flags.contains(IoIoExitFlags::INPUT) {
+				if !ghcb.save.is_valid_field(& ghcb.save.rax) {
+					sev_exit!(error_exit_codes::EXIT_VC_ERROR, "invalid VMM response: rax is invalid");
+				}
+				frame.registers.rax = ghcb.save.rax;
 			}
-			registers_data.registers.rax = ghcb.save.rax;
-		}
 
-		Ok(())
+			Ok(())
+		}
 	}
 }
+
 
 #[derive(Copy, Clone)]
 pub(super) struct IoIoExitInfo {
