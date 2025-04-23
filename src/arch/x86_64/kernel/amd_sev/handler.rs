@@ -10,6 +10,7 @@ use crate::arch::interrupts::ExceptionStackFrame;
 use crate::arch::kernel::amd_sev::{ghcb_request_exit, instruction_parser, with_ghcb};
 use crate::arch::kernel::amd_sev::handler_cpuid::CpuIdHandler;
 use crate::env::kernel::amd_sev::handler_ioio::IoIoHandler;
+use crate::env::kernel::amd_sev::handler_msr::MsrHandler;
 use crate::env::kernel::amd_sev::instruction_parser::InstructionData;
 
 #[naked]
@@ -170,6 +171,7 @@ const HANDLERS: [Option<&'static dyn VcHandler>; 0xB0] = {
 
     base[GhcbExitCode::IoIoProtocol as usize] = Some(&IoIoHandler);
     base[GhcbExitCode::CPUID as usize] = Some(&CpuIdHandler);
+    base[GhcbExitCode::MsrProtocol as usize] = Some(&MsrHandler);
 
     base
 };
