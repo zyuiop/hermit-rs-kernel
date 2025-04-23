@@ -76,8 +76,7 @@ impl InstructionData {
             // Parse other opcodes
             match opcode {
                 opcode_prefix::OVERRIDE_SEGMENT_CS | opcode_prefix::OVERRIDE_SEGMENT_DS | opcode_prefix::OVERRIDE_SEGMENT_ES | opcode_prefix::OVERRIDE_SEGMENT_FS | opcode_prefix::OVERRIDE_SEGMENT_GS | opcode_prefix::OVERRIDE_SEGMENT_SS => {
-                    ghcb_request_exit(error_exit_codes::EXIT_PARSE_UNHANDLED);
-                    panic!("unhandled override segment prefix!")
+                    sev_exit!(error_exit_codes::EXIT_PARSE_UNHANDLED, "error while parsing instruction: unhandled override segment prefix!")
                 }
                 opcode_prefix::OVERRIDE_OPERAND_SIZE => {
                     // Always in 64bits mode
@@ -110,8 +109,7 @@ impl InstructionData {
             self.next();
         }
 
-        ghcb_request_exit(error_exit_codes::EXIT_PARSE_ERROR);
-        panic!("could not complete instruction parsing")
+        sev_exit!(error_exit_codes::EXIT_PARSE_ERROR, "error while parsing instruction: instruction too long");
     }
 
     #[inline(always)]

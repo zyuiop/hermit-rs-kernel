@@ -1,4 +1,7 @@
+use x86_64::instructions::interrupts::without_interrupts;
+use x86_64::structures::amd_sev::ghcb_msr_protocol::vmgexit;
 use x86_64::structures::amd_sev::ghcb_protocol::{checked_vmgexit, Ghcb, GhcbExitCode, GhcbProtocolError};
+use crate::arch::kernel::amd_sev::with_ghcb;
 use crate::env::kernel::amd_sev::ghcb_request_exit;
 use crate::env::kernel::amd_sev::vc_handler::{error_exit_codes, InterruptStackFrame, SavedRegisters};
 use super::instruction_parser::{InstructionData, InstructionRepetitionMode, Size};
@@ -34,8 +37,7 @@ pub fn handle_ioio(
 
 		if info.flags.contains(IoIoExitFlags::INPUT) {
 			if !ghcb.save.is_valid_field(& ghcb.save.rax) {
-				ghcb_request_exit(error_exit_codes::EXIT_VC_ERROR);
-				panic!("missing rax return value for IN VMM instruction!")
+				sev_exit!(error_exit_codes::EXIT_VC_ERROR, "invalid VMM response: rax is invalid");
 			}
 			registers_data.registers.rax = ghcb.save.rax;
 		}
@@ -45,10 +47,10 @@ pub fn handle_ioio(
 }
 
 #[derive(Copy, Clone)]
-struct IoIoExitInfo {
-	port: u16,
-	segment_number: u8,
-	flags: IoIoExitFlags,
+pub(super) struct IoIoExitInfo {
+	pub(super) port: u16,
+	pub(super) segment_number: u8,
+	pub(super) flags: IoIoExitFlags,
 }
 
 impl From<&IoIoExitInfo> for u32 {
@@ -72,8 +74,7 @@ impl IoIoExitInfo {
 		let opcode = if opcode & 0xff == opcode {
 			opcode as u8
 		} else {
-			ghcb_request_exit(error_exit_codes::EXIT_VC_INVALIDOP);
-			panic!("unsupported opcode!")
+			sev_exit!(error_exit_codes::EXIT_VC_INVALIDOP, "invalid ioio opcode {opcode:x}")
 		};
 
 		match opcode {
@@ -105,8 +106,7 @@ impl IoIoExitInfo {
 				out.port = (registers_data.rdx & 0xffff) as u16;
 			}
 			_ => {
-				ghcb_request_exit(error_exit_codes::EXIT_VC_INVALIDOP);
-				panic!("Invalid IOIO opcode: {opcode:x}")
+				sev_exit!(error_exit_codes::EXIT_VC_INVALIDOP, "invalid ioio opcode {opcode:x}");
 			},
 		};
 
@@ -144,7 +144,7 @@ impl IoIoExitInfo {
 
 bitflags! {
 	#[derive(Debug, Copy, Clone, Default)]
-	struct IoIoExitFlags: u16 {
+	pub(super) struct IoIoExitFlags: u16 {
 		const INPUT = 1 << 0;
 		const STRING = 1 << 2;
 		const REPEAT = 1 << 3;
@@ -168,7 +168,7 @@ impl IoIoExitFlags {
 		} else if self.contains(Self::DATA_32B) {
 			0xff_ff_ff_ff
 		} else {
-			panic!("invalid exit flags structure")
+			sev_exit!(error_exit_codes::EXIT_OTHER, "invalid exit flags structure")
 		}
 	}
 }

@@ -8,7 +8,7 @@ use x86_64::structures::amd_sev::ghcb_protocol::Ghcb;
 use x86_64::structures::idt::InterruptStackFrameValue;
 use crate::arch::interrupts::ExceptionStackFrame;
 use crate::arch::kernel::amd_sev::{ghcb_request_exit, instruction_parser, with_ghcb};
-use crate::arch::kernel::amd_sev::ioio_protocol::handle_ioio;
+use crate::arch::kernel::amd_sev::ioio_handler::handle_ioio;
 use crate::env::kernel::amd_sev::instruction_parser::InstructionData;
 use crate::env::kernel::amd_sev::SvmExitCodes;
 
@@ -171,13 +171,11 @@ fn do_handle(registers_data: &mut InterruptStackFrame,
             handle_ioio(ghcb, instruction_data, registers_data)
         },
         other => {
-            ghcb_request_exit(error_exit_codes::EXIT_VC_UNHANDLED);
-            // panic!("unhandled #VC event {:x} ({:?})", code, other)
+            sev_exit!(error_exit_codes::EXIT_VC_UNHANDLED, "unhandled #VC event 0x{:x}", code)
         }
     };
 
     if let Err(e) = result {
-        ghcb_request_exit(error_exit_codes::EXIT_VC_ERROR);
-        // panic!("protocol error while handling #VC event {:x} ({:?}): {:?}", code, exit_code, e)
+        sev_exit!(error_exit_codes::EXIT_VC_ERROR, "protocol error while handling #VC event 0x{:x}: {:?}", code, e)
     }
 }

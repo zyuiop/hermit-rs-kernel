@@ -1,8 +1,23 @@
+
+macro_rules! sev_exit {
+    ($code:expr) => {{
+        log::error!();
+        x86_64::structures::amd_sev::ghcb_msr_protocol::ghcb_request_exit($code)
+    }};
+    ($code:expr, $($arg:tt)*) => {{
+        log::error!($($arg)+);
+        x86_64::structures::amd_sev::ghcb_msr_protocol::ghcb_request_exit($code)
+    }};
+}
+
+
 pub mod instruction_parser;
-pub mod ioio_protocol;
+pub mod ioio_handler;
 mod opcodes;
 pub(crate) mod vc_handler;
 mod exitcodes;
+pub(crate) mod paravirt_uart;
+pub mod ioio_explicit;
 
 pub use vc_handler::vmm_interrupt_exception;
 
@@ -23,87 +38,6 @@ enum SvmExitCodes {
     IOIO = 0x7b
 }
 
-pub struct IoIoExplicitProtocolExit<'a> {
-    io_port: u16,
-    data: IoIoExplicitProtocolExitData<'a>
-}
-
-pub enum IoIoExplicitProtocolExitData<'a> {
-    StringOut(&'a [u8]),
-    StringIn(&'a mut [u8]),
-
-    ByteOut(u8),
-    WordOut(u16),
-    DblWordOut(u32),
-
-    ByteIn(&'a mut u8),
-    WordIn(&'a mut u16),
-    DblWordIn(&'a mut u32),
-}
-
-pub enum VmgExitError {}
-
-
-impl <'a> IoIoExplicitProtocolExit<'a> {
-    pub fn new(io_port: u16, data: IoIoExplicitProtocolExitData<'a>) -> Self {
-        Self { io_port, data }
-    }
-
-    pub fn write_to_ghcb(&self, ghcb: &mut Ghcb) {
-        ghcb.clear();
-
-
-    }
-
-    pub fn read_response_from_ghcb(&self, ghcb: &Ghcb) {
-
-    }
-
-    pub fn execute(&self) -> Result<(), VmgExitError> {
-        without_interrupts(|| {
-            with_ghcb(|ghcb| {
-                self.write_to_ghcb(ghcb);
-
-                unsafe {
-                    vmgexit();
-                }
-
-                self.read_response_from_ghcb(ghcb);
-
-                Ok(())
-            })
-        })
-    }
-}
-
-pub fn hyper_outb(io_line: u16, byte: u8) -> Result<(), VmgExitError> {
-    IoIoExplicitProtocolExit::new(io_line, IoIoExplicitProtocolExitData::ByteOut(byte)).execute()
-}
-
-pub fn hyper_outw(io_line: u16, word: u16) -> Result<(), VmgExitError> {
-    IoIoExplicitProtocolExit::new(io_line, IoIoExplicitProtocolExitData::WordOut(word)).execute()
-}
-
-pub fn hyper_outdw(io_line: u16, dword: u32) -> Result<(), VmgExitError> {
-    IoIoExplicitProtocolExit::new(io_line, IoIoExplicitProtocolExitData::DblWordOut(dword)).execute()
-}
-
-
-pub fn hyper_inb_ref(io_line: u16, byte: &mut u8) -> Result<(), VmgExitError> {
-    IoIoExplicitProtocolExit::new(io_line, IoIoExplicitProtocolExitData::ByteIn(byte)).execute()
-}
-
-pub fn hyper_inw_ref(io_line: u16, word: &mut u16) -> Result<(), VmgExitError> {
-    IoIoExplicitProtocolExit::new(io_line, IoIoExplicitProtocolExitData::WordIn(word)).execute()
-}
-
-pub fn hyper_indw_ref(io_line: u16, dword: &mut u32) -> Result<(), VmgExitError> {
-    IoIoExplicitProtocolExit::new(io_line, IoIoExplicitProtocolExitData::DblWordIn(dword)).execute()
-}
-
-
-
-
 
 
 /* 
@@ -122,6 +56,7 @@ struct ghcb {
  */
 
 pub use x86_64::structures::amd_sev::ghcb_msr_protocol::ghcb_request_exit;
+use crate::env::kernel::amd_sev::vc_handler::error_exit_codes;
 
 const MAX_GHCB_PROTOCOL_VERSION: u16 = 1;
 
@@ -130,12 +65,13 @@ pub fn ghcb_negotiate_protocol() -> u64 {
     info!("Read GHCB MSR : {data:?}");
 ;
     let GhcbMsrResponse::SevInformation { max_proto, min_proto, c_bit_pos } =
-        GHCB_MSR.send_request_restore(GhcbMsrRequest::SevRequest) else { panic!("Invalid GHCB MSR response"); };
+        GHCB_MSR.send_request_restore(GhcbMsrRequest::SevRequest) else {
+        sev_exit!(error_exit_codes::EXIT_VC_INVALID_EXIT_CODE, "Invalid GHCB MSR response"); };
 
     info!("Got GHCB protocol versions: max={max_proto}, min={min_proto} - c_bit_pos={c_bit_pos}");
 
     if max_proto < MAX_GHCB_PROTOCOL_VERSION || min_proto > MAX_GHCB_PROTOCOL_VERSION {
-        panic!("GHCB version negotiation failed: wrong protocol version");
+        sev_exit!(error_exit_codes::EXIT_OTHER, "GHCB version negotiation failed: wrong protocol version");
     }
 
     if MAX_GHCB_PROTOCOL_VERSION > max_proto {
@@ -155,7 +91,8 @@ pub fn print_current_ghcb() {
 
 pub fn with_ghcb<F, R>(f: F) -> R
 where F: FnOnce(&mut Ghcb) -> R {
-    let GhcbMsrResponse::GhcbPhysicalAddress(current_ghcb_addr) = GHCB_MSR.read_state() else { panic!("Invalid GHCB MSR response"); };
+    let GhcbMsrResponse::GhcbPhysicalAddress(current_ghcb_addr) = GHCB_MSR.read_state() else {
+        sev_exit!(error_exit_codes::EXIT_VC_INVALID_EXIT_CODE, "Invalid GHCB MSR response"); };
     let ptr: *mut Ghcb = current_ghcb_addr.as_u64() as *mut Ghcb;
     let ghcb = unsafe {
         ptr.as_mut().unwrap()

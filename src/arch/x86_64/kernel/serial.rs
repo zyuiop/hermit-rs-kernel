@@ -1,9 +1,10 @@
 use alloc::collections::VecDeque;
 use core::task::Waker;
-
+use x86_64::structures::amd_sev::{sev_init, sev_state};
 use crate::arch::x86_64::kernel::apic;
 use crate::arch::x86_64::kernel::core_local::increment_irq_counter;
 use crate::arch::x86_64::kernel::interrupts::{self, IDT};
+use crate::env::kernel::amd_sev::paravirt_uart;
 use crate::executor::WakerRegistration;
 use crate::syscalls::interfaces::serial_buf_hypercall;
 
@@ -11,6 +12,7 @@ const SERIAL_IRQ: u8 = 36;
 
 enum SerialInner {
 	Uart(uart_16550::SerialPort),
+	AmdSev(paravirt_uart::SerialPort),
 	Uhyve,
 }
 
@@ -25,6 +27,14 @@ impl SerialPort {
 		if crate::env::is_uhyve() {
 			Self {
 				inner: SerialInner::Uhyve,
+				buffer: VecDeque::new(),
+				waker: WakerRegistration::new(),
+			}
+		} else if sev_init().is_some_and(|s| s.sev_es_enabled()) {
+			let mut serial = unsafe { paravirt_uart::SerialPort::new(base) };
+			serial.init();
+			Self {
+				inner: SerialInner::AmdSev(serial),
 				buffer: VecDeque::new(),
 				waker: WakerRegistration::new(),
 			}
@@ -67,6 +77,11 @@ impl SerialPort {
 		match &mut self.inner {
 			SerialInner::Uhyve => serial_buf_hypercall(buf),
 			SerialInner::Uart(s) => {
+				for &data in buf {
+					s.send(data);
+				}
+			}
+			SerialInner::AmdSev(s) => {				
 				for &data in buf {
 					s.send(data);
 				}
