@@ -10,6 +10,7 @@ use crate::arch::interrupts::ExceptionStackFrame;
 use crate::arch::kernel::amd_sev::{ghcb_request_exit, instruction_parser, with_ghcb};
 use crate::arch::kernel::amd_sev::handler_cpuid::CpuIdHandler;
 use crate::env::kernel::amd_sev::handler_ioio::IoIoHandler;
+use crate::env::kernel::amd_sev::handler_mmio::MmioHandler;
 use crate::env::kernel::amd_sev::handler_msr::MsrHandler;
 use crate::env::kernel::amd_sev::instruction_parser::InstructionData;
 
@@ -26,6 +27,8 @@ pub extern "x86-interrupt" fn vmm_interrupt_exception(
     unsafe {
         naked_asm!(
             // Save general purpose registers
+            "push rbp",
+
             // Scratch registers (x64)
             "push r11",
             "push r10",
@@ -64,6 +67,7 @@ pub extern "x86-interrupt" fn vmm_interrupt_exception(
             "pop r9",
             "pop r10",
             "pop r11",
+            "pop rbp",
 
             // Skip error code! iretq expects the error code to have been popped
             "add rsp, 0x8",
@@ -112,6 +116,7 @@ pub struct SavedRegisters {
     pub r9: u64,
     pub r10: u64,
     pub r11: u64,
+    pub rbp: u64,
 }
 
 #[derive(Debug)]
@@ -176,6 +181,16 @@ const HANDLERS: [Option<&'static dyn VcHandler>; 0xB0] = {
     base
 };
 
+const FAULT_NPF: usize = 0x400;
+
+const FAULT_HANDLERS: [Option<&'static dyn VcHandler>; 0x4] = {
+    let mut base: [Option<&'static dyn VcHandler>; 0x4] = [None; 0x4];
+
+    base[FAULT_NPF & 0xff] = Some(&MmioHandler);
+
+    base
+};
+
 fn do_handle(stack_frame: &mut InterruptStackFrame,
              instruction_data: &mut InstructionData,
              code: u64,
@@ -186,7 +201,7 @@ fn do_handle(stack_frame: &mut InterruptStackFrame,
 
     // Read the exception information
     let exit_code = (code & 0xffff) as u16;
-    let handler = HANDLERS.get(exit_code as usize);
+    let handler = if exit_code & 0x400 != 0 { FAULT_HANDLERS.get((exit_code as usize) & 0xff) } else { HANDLERS.get(exit_code as usize) };
 
     let result = match handler {
         Some(Some(handler)) => handler.handle(stack_frame, ghcb, instruction_data),

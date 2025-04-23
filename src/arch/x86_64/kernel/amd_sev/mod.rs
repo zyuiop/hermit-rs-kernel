@@ -20,6 +20,7 @@ pub(crate) mod paravirt_uart;
 pub mod ioio_explicit;
 mod handler_cpuid;
 mod handler_msr;
+mod handler_mmio;
 
 pub use handler::vmm_interrupt_exception;
 

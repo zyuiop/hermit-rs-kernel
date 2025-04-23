@@ -21,6 +21,7 @@ pub struct InstructionData {
     address_size: Size,
 }
 
+
 #[derive(Copy, Clone, PartialEq, Eq)]
 pub enum InstructionRepetitionMode {
     None,
