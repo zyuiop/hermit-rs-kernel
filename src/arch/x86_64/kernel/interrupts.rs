@@ -9,9 +9,10 @@ use hermit_sync::{InterruptSpinMutex, InterruptTicketMutex, OnceCell};
 use x86_64::instructions::interrupts::enable_and_hlt;
 pub use x86_64::instructions::interrupts::{disable, enable};
 use x86_64::set_general_handler;
+use x86_64::structures::amd_sev::ghcb_msr_protocol::ghcb_request_exit;
 use x86_64::structures::idt::InterruptDescriptorTable;
 pub use x86_64::structures::idt::InterruptStackFrame as ExceptionStackFrame;
-
+use crate::arch::kernel::amd_sev::vc_handler::ghcb_debug_data;
 use crate::arch::x86_64::kernel::core_local::{core_scheduler, increment_irq_counter};
 use crate::arch::x86_64::kernel::{apic, processor};
 use crate::arch::x86_64::mm::paging::{BasePageSize, PageSize, page_fault_handler};
@@ -194,6 +195,8 @@ fn handle_interrupt(stack_frame: ExceptionStackFrame, index: u8, _error_code: Op
 }
 
 fn abort(stack_frame: ExceptionStackFrame, index: u8, error_code: Option<u64>) {
+	ghcb_request_exit(0x2f);
+
 	error!("Exception {index}");
 	error!("Error code: {error_code:?}");
 	error!("Stack frame: {stack_frame:#?}");
@@ -207,36 +210,48 @@ extern "x86-interrupt" fn divide_error_exception(stack_frame: ExceptionStackFram
 }
 
 extern "x86-interrupt" fn debug_exception(stack_frame: ExceptionStackFrame) {
+	ghcb_request_exit(0x2e);
+
 	swapgs(&stack_frame);
 	error!("Debug (#DB) Exception: {stack_frame:#?}");
 	scheduler::abort();
 }
 
 extern "x86-interrupt" fn nmi_exception(stack_frame: ExceptionStackFrame) {
+	ghcb_request_exit(0x2d);
+
 	swapgs(&stack_frame);
 	error!("Non-Maskable Interrupt (NMI) Exception: {stack_frame:#?}");
 	scheduler::abort();
 }
 
 extern "x86-interrupt" fn breakpoint_exception(stack_frame: ExceptionStackFrame) {
+	ghcb_request_exit(0x2c);
+
 	swapgs(&stack_frame);
 	error!("Breakpoint (#BP) Exception: {stack_frame:#?}");
 	scheduler::abort();
 }
 
 extern "x86-interrupt" fn overflow_exception(stack_frame: ExceptionStackFrame) {
+	ghcb_request_exit(0x2b);
+
 	swapgs(&stack_frame);
 	error!("Overflow (#OF) Exception: {stack_frame:#?}");
 	scheduler::abort();
 }
 
 extern "x86-interrupt" fn bound_range_exceeded_exception(stack_frame: ExceptionStackFrame) {
+	ghcb_request_exit(0x2a);
+
 	swapgs(&stack_frame);
 	error!("BOUND Range Exceeded (#BR) Exception: {stack_frame:#?}");
 	scheduler::abort();
 }
 
 extern "x86-interrupt" fn invalid_opcode_exception(stack_frame: ExceptionStackFrame) {
+	ghcb_request_exit(0x29);
+
 	swapgs(&stack_frame);
 	error!("Invalid Opcode (#UD) Exception: {stack_frame:#?}");
 	scheduler::abort();
@@ -260,6 +275,8 @@ extern "x86-interrupt" fn device_not_available_exception(stack_frame: ExceptionS
 }
 
 extern "x86-interrupt" fn invalid_tss_exception(stack_frame: ExceptionStackFrame, _code: u64) {
+	ghcb_request_exit(0x28);
+
 	swapgs(&stack_frame);
 	error!("Invalid TSS (#TS) Exception: {stack_frame:#?}");
 	scheduler::abort();
@@ -269,6 +286,8 @@ extern "x86-interrupt" fn segment_not_present_exception(
 	stack_frame: ExceptionStackFrame,
 	_code: u64,
 ) {
+	ghcb_request_exit(0x27);
+
 	swapgs(&stack_frame);
 	error!("Segment Not Present (#NP) Exception: {stack_frame:#?}");
 	scheduler::abort();
@@ -278,6 +297,8 @@ extern "x86-interrupt" fn stack_segment_fault_exception(
 	stack_frame: ExceptionStackFrame,
 	error_code: u64,
 ) {
+	ghcb_request_exit(0x26);
+
 	swapgs(&stack_frame);
 	error!("Stack Segment Fault (#SS) Exception: {stack_frame:#?}, error {error_code:#X}");
 	scheduler::abort();
@@ -287,6 +308,13 @@ extern "x86-interrupt" fn general_protection_exception(
 	stack_frame: ExceptionStackFrame,
 	error_code: u64,
 ) {
+	ghcb_debug_data(
+		error_code,
+		stack_frame.instruction_pointer.as_u64(),
+	);
+	ghcb_request_exit(0x25);
+
+
 	swapgs(&stack_frame);
 	error!("General Protection (#GP) Exception: {stack_frame:#?}, error {error_code:#X}");
 	error!(
@@ -301,6 +329,8 @@ extern "x86-interrupt" fn double_fault_exception(
 	stack_frame: ExceptionStackFrame,
 	error_code: u64,
 ) -> ! {
+	ghcb_request_exit(0x20);
+
 	swapgs(&stack_frame);
 	error!("Double Fault (#DF) Exception: {stack_frame:#?}, error {error_code:#X}");
 	scheduler::abort()
@@ -313,24 +343,32 @@ extern "x86-interrupt" fn floating_point_exception(stack_frame: ExceptionStackFr
 }
 
 extern "x86-interrupt" fn alignment_check_exception(stack_frame: ExceptionStackFrame, _code: u64) {
+	ghcb_request_exit(0x21);
+
 	swapgs(&stack_frame);
 	error!("Alignment Check (#AC) Exception: {stack_frame:#?}");
 	scheduler::abort();
 }
 
 extern "x86-interrupt" fn machine_check_exception(stack_frame: ExceptionStackFrame) -> ! {
+	ghcb_request_exit(0x22);
+
 	swapgs(&stack_frame);
 	error!("Machine Check (#MC) Exception: {stack_frame:#?}");
 	scheduler::abort()
 }
 
 extern "x86-interrupt" fn simd_floating_point_exception(stack_frame: ExceptionStackFrame) {
+	ghcb_request_exit(0x23);
+
 	swapgs(&stack_frame);
 	error!("SIMD Floating-Point (#XM) Exception: {stack_frame:#?}");
 	scheduler::abort();
 }
 
 extern "x86-interrupt" fn virtualization_exception(stack_frame: ExceptionStackFrame) {
+	ghcb_request_exit(0x24);
+
 	swapgs(&stack_frame);
 	error!("Virtualization (#VE) Exception: {stack_frame:#?}");
 	scheduler::abort();

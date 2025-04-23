@@ -1,10 +1,8 @@
-use core::arch::asm;
 use x86_64::structures::amd_sev::ghcb_protocol::{checked_vmgexit, Ghcb, GhcbExitCode, GhcbProtocolError};
 use crate::env::kernel::amd_sev::ghcb_request_exit;
-use crate::env::kernel::amd_sev::vc_handler::{error_exit_codes, InterruptStackFrame};
+use crate::env::kernel::amd_sev::vc_handler::{error_exit_codes, InterruptStackFrame, SavedRegisters};
 use super::instruction_parser::{InstructionData, InstructionRepetitionMode, Size};
 use super::opcodes::io_opcode;
-use super::vc_handler::RegistersData;
 
 /// Handler for IOIO (0x7b) errors
 pub fn handle_ioio(
@@ -16,7 +14,7 @@ pub fn handle_ioio(
 
 	// Reference: https://github.com/tianocore/edk2/blob/master/OvmfPkg/Library/CcExitLib/CcExitVcHandler.c#L910
 
-	let info = IoIoExitInfo::from_instruction(instruction_data);
+	let info = IoIoExitInfo::from_instruction(instruction_data, &registers_data.registers);
 
 	if info.flags.contains(IoIoExitFlags::STRING) {
 		ghcb_request_exit(error_exit_codes::EXIT_VC_NOT_IMPLEMENTED);
@@ -63,7 +61,7 @@ impl From<&IoIoExitInfo> for u32 {
 
 impl IoIoExitInfo {
 	/// Parse an instruction into IoIo exit information
-	pub fn from_instruction(idata: &mut InstructionData) -> IoIoExitInfo {
+	pub fn from_instruction(idata: &mut InstructionData, registers_data: &SavedRegisters) -> IoIoExitInfo {
 		let mut out = IoIoExitInfo {
 			port: 0,
 			segment_number: 0,
@@ -82,14 +80,12 @@ impl IoIoExitInfo {
 			io_opcode::INS_BYTE | io_opcode::INS_WORDS => {
 				out.flags.insert(IoIoExitFlags::INPUT);
 				out.flags.insert(IoIoExitFlags::STRING);
-
-				unsafe { asm!("mov {:x}, dx", out(reg) out.port) };
+				out.port = (registers_data.rdx & 0xffff) as u16;
 			}
 			io_opcode::OUTS_BYTE | io_opcode::OUTS_WORDS => {
 				out.flags.insert(IoIoExitFlags::STRING);
 				out.segment_number = 0x3; // DS segment
-
-				unsafe { asm!("mov {:x}, dx", out(reg) out.port) };
+				out.port = (registers_data.rdx & 0xffff) as u16;
 			}
 			io_opcode::IN_BYTE_IMM | io_opcode::IN_WORDS_IMM => {
 				out.flags.insert(IoIoExitFlags::INPUT);
@@ -103,11 +99,10 @@ impl IoIoExitInfo {
 			}
 			io_opcode::IN_BYTE_DX | io_opcode::IN_WORDS_DX => {
 				out.flags.insert(IoIoExitFlags::INPUT);
-
-				unsafe { asm!("mov {:x}, dx", out(reg) out.port) };
+				out.port = (registers_data.rdx & 0xffff) as u16;
 			}
 			io_opcode::OUT_BYTE_DX | io_opcode::OUT_WORDS_DX => {
-				unsafe { asm!("mov {:x}, dx", out(reg) out.port) };
+				out.port = (registers_data.rdx & 0xffff) as u16;
 			}
 			_ => {
 				ghcb_request_exit(error_exit_codes::EXIT_VC_INVALIDOP);

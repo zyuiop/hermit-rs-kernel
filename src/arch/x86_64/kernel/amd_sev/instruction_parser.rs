@@ -1,5 +1,7 @@
 use core::arch::asm;
 use core::slice;
+use x86_64::structures::amd_sev::ghcb_msr_protocol::ghcb_request_exit;
+use crate::arch::kernel::amd_sev::vc_handler::error_exit_codes;
 use crate::env::kernel::amd_sev::opcodes::{opcode_prefix, RegisterExtensions};
 
 const MAX_INSTRUCTION_LENGTH: usize = 15;
@@ -74,6 +76,7 @@ impl InstructionData {
             // Parse other opcodes
             match opcode {
                 opcode_prefix::OVERRIDE_SEGMENT_CS | opcode_prefix::OVERRIDE_SEGMENT_DS | opcode_prefix::OVERRIDE_SEGMENT_ES | opcode_prefix::OVERRIDE_SEGMENT_FS | opcode_prefix::OVERRIDE_SEGMENT_GS | opcode_prefix::OVERRIDE_SEGMENT_SS => {
+                    ghcb_request_exit(error_exit_codes::EXIT_PARSE_UNHANDLED);
                     panic!("unhandled override segment prefix!")
                 }
                 opcode_prefix::OVERRIDE_OPERAND_SIZE => {
@@ -107,6 +110,7 @@ impl InstructionData {
             self.next();
         }
 
+        ghcb_request_exit(error_exit_codes::EXIT_PARSE_ERROR);
         panic!("could not complete instruction parsing")
     }
 

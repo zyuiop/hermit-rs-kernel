@@ -13,7 +13,6 @@ use crate::arch::kernel::amd_sev::{ghcb_negotiate_protocol, init_ghcb};
 use self::serial::SerialPort;
 use crate::arch::x86_64::kernel::core_local::*;
 use crate::env::{self, is_uhyve};
-use crate::env::kernel::amd_sev::print_current_ghcb;
 
 #[cfg(feature = "acpi")]
 pub mod acpi;
@@ -172,10 +171,7 @@ pub fn boot_processor_init() {
 	// pic::init(); // TODO: init PIC after interrupts have been installed (VC handler)
 	interrupts::install();
 
-	info!("let me cause a #VC");
-
-	amd_sev::ghcb_request_exit(69);
-
+	info!("Interrupts installed!");
 
 	processor::detect_frequency();
 	processor::print_information();

@@ -1,7 +1,7 @@
 pub mod instruction_parser;
 pub mod ioio_protocol;
 mod opcodes;
-mod vc_handler;
+pub(crate) mod vc_handler;
 mod exitcodes;
 
 pub use vc_handler::vmm_interrupt_exception;
