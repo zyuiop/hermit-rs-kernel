@@ -1,6 +1,6 @@
 use alloc::collections::VecDeque;
 use core::task::Waker;
-use x86_64::structures::amd_sev::{sev_init, sev_state};
+use x86_64::structures::amd_sev::{init, sev_state};
 use crate::arch::x86_64::kernel::apic;
 use crate::arch::x86_64::kernel::core_local::increment_irq_counter;
 use crate::arch::x86_64::kernel::interrupts::{self, IDT};
@@ -30,7 +30,7 @@ impl SerialPort {
 				buffer: VecDeque::new(),
 				waker: WakerRegistration::new(),
 			}
-		} else if sev_init().is_some_and(|s| s.sev_es_enabled()) {
+		} else if init().is_some_and(|s| s.sev_es_enabled) {
 			let mut serial = unsafe { paravirt_uart::SerialPort::new(base) };
 			serial.init();
 			Self {

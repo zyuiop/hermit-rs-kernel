@@ -7,7 +7,6 @@ use hermit_entry::boot_info::{PlatformInfo, RawBootInfo};
 use raw_cpuid::CpuId;
 use memory_addresses::{PhysAddr, VirtAddr};
 use x86_64::registers::control::{Cr0, Cr3, Cr4};
-use x86_64::structures::amd_sev::sev_init;
 use crate::arch::kernel::amd_sev::{ghcb_negotiate_protocol, init_ghcb};
 use self::serial::SerialPort;
 use crate::arch::x86_64::kernel::core_local::*;
@@ -144,8 +143,8 @@ pub fn args() -> Option<&'static str> {
 /// Real Boot Processor initialization as soon as we have put the first Welcome message on the screen.
 #[cfg(target_os = "none")]
 pub fn boot_processor_init() {
-	let sev = sev_init();
-	if sev.is_some_and(|sev| sev.sev_enabled()) {
+	let sev = x86_64::structures::amd_sev::init();
+	if sev.is_some_and(|sev| sev.sev_enabled) {
 		info!("Enabled AMD encrypted memory support! ({sev:?})");
 	}
 

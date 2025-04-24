@@ -806,7 +806,7 @@ pub fn boot_application_processors() {
 	let core_id = core_id();
 
 
-	if apic_ids.len() > 1 && sev_state().is_some_and(|sev| sev.sev_es_enabled()) {
+	if apic_ids.len() > 1 && sev_state().is_some_and(|sev| sev.sev_es_enabled) {
 		unsafe {
 			let table = amd_sev::handler_ap::ap_jump_table_get().unwrap();
 			let table = table.as_mut().unwrap();
