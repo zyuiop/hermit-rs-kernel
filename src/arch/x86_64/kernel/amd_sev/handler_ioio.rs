@@ -1,7 +1,4 @@
-use x86_64::instructions::interrupts::without_interrupts;
-use x86_64::structures::amd_sev::ghcb_msr_protocol::vmgexit;
-use x86_64::structures::amd_sev::ghcb_protocol::{checked_vmgexit, Ghcb, GhcbExitCode, GhcbProtocolError};
-use crate::arch::kernel::amd_sev::with_ghcb;
+use super::ghcb_protocol::{checked_vmgexit, Ghcb, GhcbExitCode, GhcbProtocolError};
 use crate::env::kernel::amd_sev::ghcb_request_exit;
 use crate::env::kernel::amd_sev::handler::{error_exit_codes, InterruptStackFrame, SavedRegisters, VcHandler};
 use super::instruction_parser::{InstructionData, InstructionRepetitionMode, Size};

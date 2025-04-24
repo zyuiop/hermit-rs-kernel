@@ -1,6 +1,6 @@
 use x86_64::registers::control::{Cr4, Cr4Flags};
 use x86_64::registers::xcontrol::XCr0;
-use x86_64::structures::amd_sev::ghcb_protocol::{
+use super::ghcb_protocol::{
 	Ghcb, GhcbExitCode, GhcbProtocolError, checked_vmgexit,
 };
 

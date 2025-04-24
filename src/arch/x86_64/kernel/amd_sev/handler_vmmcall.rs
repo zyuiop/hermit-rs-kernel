@@ -1,5 +1,5 @@
 use x86_64::instructions::interrupts::without_interrupts;
-use x86_64::structures::amd_sev::ghcb_protocol::{checked_vmgexit, Ghcb, GhcbExitCode, GhcbProtocolError};
+use super::ghcb_protocol::{checked_vmgexit, Ghcb, GhcbExitCode, GhcbProtocolError};
 use crate::arch::kernel::amd_sev::handler::{error_exit_codes, InterruptStackFrame};
 use crate::arch::kernel::amd_sev::instruction_parser::InstructionData;
 use crate::env::kernel::amd_sev::with_ghcb;

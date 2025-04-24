@@ -1,6 +1,4 @@
-use core::arch::asm;
 use core::slice;
-use x86_64::structures::amd_sev::ghcb_msr_protocol::ghcb_request_exit;
 use crate::arch::kernel::amd_sev::handler::error_exit_codes;
 use crate::env::kernel::amd_sev::opcodes::{opcode_prefix, RegisterExtensions};
 

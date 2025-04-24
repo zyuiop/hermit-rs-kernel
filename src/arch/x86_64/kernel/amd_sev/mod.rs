@@ -2,14 +2,13 @@
 macro_rules! sev_exit {
     ($code:expr) => {{
         log::error!();
-        x86_64::structures::amd_sev::ghcb_msr_protocol::ghcb_request_exit($code)
+        crate::arch::x86_64::kernel::amd_sev::ghcb_msr_protocol::ghcb_request_exit($code)
     }};
     ($code:expr, $($arg:tt)*) => {{
         log::error!($($arg)+);
-        x86_64::structures::amd_sev::ghcb_msr_protocol::ghcb_request_exit($code)
+        crate::arch::x86_64::kernel::amd_sev::ghcb_msr_protocol::ghcb_request_exit($code)
     }};
 }
-
 
 pub mod instruction_parser;
 pub mod handler_ioio;
@@ -23,6 +22,8 @@ mod handler_msr;
 mod handler_mmio;
 mod handler_vmmcall;
 pub mod handler_ap;
+mod ghcb_msr_protocol;
+mod ghcb_protocol;
 
 use core::arch::asm;
 use align_address::Align;
@@ -31,14 +32,11 @@ use x86_64::instructions::tlb;
 pub use handler::vmm_interrupt_exception;
 
 use x86_64::structures::paging::{Mapper, Page, PageSize, Size4KiB, Translate};
-use x86_64::structures::paging::mapper::TranslateResult;
-use x86_64::structures::amd_sev::ghcb_msr_protocol::{vmgexit, GhcbMsrRequest, GhcbMsrResponse, GHCB_MSR};
-use x86_64::structures::amd_sev::ghcb_protocol::Ghcb;
-use x86_64::structures::idt::{InterruptDescriptorTable};
-use crate::arch::interrupts::{ExceptionStackFrame};
+use ghcb_msr_protocol::{GhcbMsrRequest, GhcbMsrResponse, GHCB_MSR};
+use ghcb_protocol::Ghcb;
 use crate::arch::{BasePageSize};
-use crate::arch::mm::paging::{identity_mapped_page_table, HugePageSize, PageTableEntryFlags, PageTableEntryFlagsExt};
-use crate::{arch, mm};
+use crate::arch::mm::paging::{HugePageSize, PageTableEntryFlags, PageTableEntryFlagsExt};
+use crate::arch;
 
 /* 
 #define GHCB_SHARED_BUF_SIZE	2032
@@ -55,7 +53,7 @@ struct ghcb {
 } __packed;
  */
 
-pub use x86_64::structures::amd_sev::ghcb_msr_protocol::ghcb_request_exit;
+pub use ghcb_msr_protocol::ghcb_request_exit;
 use x86_64::structures::amd_sev::sev_state;
 use x86_64::VirtAddr;
 use memory_addresses::PhysAddr;

@@ -1,7 +1,5 @@
 use x86_64::instructions::interrupts::without_interrupts;
-use x86_64::structures::amd_sev::ghcb_msr_protocol::ghcb_request_exit;
-use x86_64::structures::amd_sev::ghcb_protocol::{checked_vmgexit, GhcbExitCode, GhcbProtocolError};
-use memory_addresses::PhysAddr;
+use super::ghcb_protocol::{checked_vmgexit, GhcbExitCode, GhcbProtocolError};
 use crate::env::kernel::amd_sev::with_ghcb;
 
 #[repr(C)]

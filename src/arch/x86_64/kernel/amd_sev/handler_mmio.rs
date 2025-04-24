@@ -1,7 +1,7 @@
 use core::ops::Add;
 use x86_64::instructions::interrupts::without_interrupts;
-use x86_64::structures::amd_sev::ghcb_protocol::{checked_vmgexit, Ghcb, GhcbExitCode, GhcbProtocolError};
-use x86_64::structures::amd_sev::ghcb_protocol::error_exit_codes::EXIT_VC_INVALIDOP;
+use super::ghcb_protocol::{checked_vmgexit, Ghcb, GhcbExitCode, GhcbProtocolError};
+use super::ghcb_protocol::error_exit_codes::EXIT_VC_INVALIDOP;
 use memory_addresses::{PhysAddr, VirtAddr};
 use crate::arch::kernel::amd_sev::handler::InterruptStackFrame;
 use crate::arch::kernel::amd_sev::instruction_parser::{InstructionData, Size};
