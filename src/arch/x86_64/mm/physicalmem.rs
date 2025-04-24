@@ -55,7 +55,6 @@ fn insert_frames<S: PageSize + core::fmt::Debug> (frames: PhysFrameRangeInclusiv
 
 		match mapper_result {
 			Ok(mapper_flush) => {
-				info!("Allocated page: {mapper_flush:?}");
 				mapper_flush.flush()
 			},
 			Err(MapToError::PageAlreadyMapped(current_frame)) => {
@@ -83,7 +82,7 @@ fn insert_frames<S: PageSize + core::fmt::Debug> (frames: PhysFrameRangeInclusiv
 					insert_frames::<Size1GiB>(PhysFrameRangeInclusive {
 						start: PhysFrame::containing_address(frame.start_address()),
 						end: PhysFrame::containing_address(frames.end.start_address())
-					}, flags);
+					}, flags | PageTableFlags::HUGE_PAGE);
 					break;
 				} else {
 					panic!("could not identity-map {frame:?}: {err:?} (page size: {})", S::DEBUG_STR);
