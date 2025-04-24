@@ -9,6 +9,8 @@ use crate::arch::mm::paging::{BasePageSize, PageSize};
 /// An [`Allocator`] for memory that is used to communicate with devices.
 ///
 /// Allocations from this allocator always correspond to contiguous physical memory.
+/// 
+/// If memory encryption is available, pages allocated with this allocator will not be encrypted.
 pub struct DeviceAlloc;
 
 unsafe impl Allocator for DeviceAlloc {
