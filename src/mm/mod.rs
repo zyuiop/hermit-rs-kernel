@@ -257,10 +257,6 @@ pub(crate) fn allocate(size: usize, no_execution: bool) -> VirtAddr {
 	let mut flags = PageTableEntryFlags::empty();
 	flags.normal().writable();
 
-	if sev_state().is_some() {
-		flags.set_encrypted(true);
-	}
-
 	if no_execution {
 		flags.execute_disable();
 	}
