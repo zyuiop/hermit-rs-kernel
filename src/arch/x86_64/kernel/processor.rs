@@ -817,26 +817,11 @@ pub fn detect_features() {
 	Lazy::force(&FEATURES);
 }
 
-pub fn configure() {
-	let cpuid = CpuId::new();
-	info!("SEV-ES_DBG: CPUID set");
-
-	// setup MSR EFER
-	unsafe {
-		Efer::update(|flags| {
-			flags.insert(
-				EferFlags::SYSTEM_CALL_EXTENSIONS
-					| EferFlags::LONG_MODE_ENABLE
-					| EferFlags::NO_EXECUTE_ENABLE,
-			);
-		});
-	}
-
-	info!("SEV-ES_DBG: EFER set");
+pub fn post_configure() {
 	//
 	// CR0 CONFIGURATION
 	//
-	/* unsafe {
+	unsafe {
 		Cr0::update(|flags| {
 			// Enable the FPU.
 			flags.insert(Cr0Flags::MONITOR_COPROCESSOR | Cr0Flags::NUMERIC_ERROR);
@@ -850,9 +835,23 @@ pub fn configure() {
 
 			debug!("Setting CR0 = {flags:?}");
 		});
-	} */
+	}
+}
 
-	info!("SEV-ES_DBG: CR0 set");
+pub fn configure() {
+	let cpuid = CpuId::new();
+
+	// setup MSR EFER
+	unsafe {
+		Efer::update(|flags| {
+			flags.insert(
+				EferFlags::SYSTEM_CALL_EXTENSIONS
+					| EferFlags::LONG_MODE_ENABLE
+					| EferFlags::NO_EXECUTE_ENABLE,
+			);
+		});
+	}
+
 	//
 	// CR4 CONFIGURATION
 	//
@@ -899,7 +898,6 @@ pub fn configure() {
 		});
 	}
 
-	info!("SEV-ES_DBG: CR4 Set");
 	//
 	// XCR0 CONFIGURATION
 	//
@@ -920,7 +918,6 @@ pub fn configure() {
 			XCr0::write(flags);
 		}
 	}
-	info!("SEV-ES_DBG: XCR0 set");
 
 	// enable support of syscall and sysret
 	#[cfg(feature = "common-os")]

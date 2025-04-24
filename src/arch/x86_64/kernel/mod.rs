@@ -147,10 +147,10 @@ pub fn args() -> Option<&'static str> {
 #[cfg(target_os = "none")]
 pub fn boot_processor_init() {
 	let sev = sev_init();
-	if let Some(sev) = sev {
+	if sev.is_some_and(|sev| sev.sev_enabled()) {
 		info!("Enabled AMD encrypted memory support! ({sev:?})");
 	}
-	ghcb_negotiate_protocol();
+
 	// amd_sev::setup_early_idt_64b();
 	// amd_sev::ghcb_request_exit(69);
 
@@ -165,6 +165,7 @@ pub fn boot_processor_init() {
 	info!("init mm...");
 	crate::mm::init();
 	crate::mm::print_information();
+
 	CoreLocal::get().add_irq_counter();
 	env::init();
 	gdt::add_current_core();
@@ -177,6 +178,7 @@ pub fn boot_processor_init() {
 
 	info!("programmable interrupt controller initialized");
 
+	processor::post_configure();
 	processor::detect_frequency();
 	processor::print_information();
 	debug!("Cr0 = {:?}", Cr0::read());
@@ -196,6 +198,8 @@ pub fn boot_processor_init() {
 	scheduler::install_timer_handler();
 	serial::install_serial_interrupt();
 	finish_processor_init();
+
+	info!("Main processor initialized!")
 }
 
 /// Application Processor initialization

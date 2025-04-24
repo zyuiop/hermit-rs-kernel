@@ -21,10 +21,15 @@ pub mod ioio_explicit;
 mod handler_cpuid;
 mod handler_msr;
 mod handler_mmio;
+mod handler_vmmcall;
+pub mod handler_ap;
 
+use core::arch::asm;
+use align_address::Align;
+use hermit_sync::{InterruptTicketMutex, Lazy};
+use x86_64::instructions::tlb;
 pub use handler::vmm_interrupt_exception;
 
-use x86_64::instructions::interrupts::without_interrupts;
 use x86_64::structures::paging::{Mapper, Page, PageSize, Size4KiB, Translate};
 use x86_64::structures::paging::mapper::TranslateResult;
 use x86_64::structures::amd_sev::ghcb_msr_protocol::{vmgexit, GhcbMsrRequest, GhcbMsrResponse, GHCB_MSR};
@@ -32,8 +37,8 @@ use x86_64::structures::amd_sev::ghcb_protocol::Ghcb;
 use x86_64::structures::idt::{InterruptDescriptorTable};
 use crate::arch::interrupts::{ExceptionStackFrame};
 use crate::arch::{BasePageSize};
-use crate::arch::mm::paging::{identity_mapped_page_table};
-use crate::{mm};
+use crate::arch::mm::paging::{identity_mapped_page_table, HugePageSize, PageTableEntryFlags, PageTableEntryFlagsExt};
+use crate::{arch, mm};
 
 /* 
 #define GHCB_SHARED_BUF_SIZE	2032
@@ -51,11 +56,16 @@ struct ghcb {
  */
 
 pub use x86_64::structures::amd_sev::ghcb_msr_protocol::ghcb_request_exit;
+use x86_64::structures::amd_sev::sev_state;
+use x86_64::VirtAddr;
+use memory_addresses::PhysAddr;
+use crate::arch::kernel::amd_sev::handler_vmmcall::Hypercalls;
 use crate::env::kernel::amd_sev::handler::error_exit_codes;
+use crate::env::kernel::amd_sev::handler_vmmcall::HYPERCALLS;
 
 const MAX_GHCB_PROTOCOL_VERSION: u16 = 1;
 
-pub fn ghcb_negotiate_protocol() -> u64 {
+pub fn ghcb_negotiate_protocol() -> u16 {
     let data = GHCB_MSR.read_state();
     info!("Read GHCB MSR : {data:?}");
 ;
@@ -70,9 +80,9 @@ pub fn ghcb_negotiate_protocol() -> u64 {
     }
 
     if MAX_GHCB_PROTOCOL_VERSION > max_proto {
-        max_proto as u64
+        max_proto
     } else {
-        MAX_GHCB_PROTOCOL_VERSION as u64
+        MAX_GHCB_PROTOCOL_VERSION
     }
 }
 
@@ -95,13 +105,29 @@ where F: FnOnce(&mut Ghcb) -> R {
     f(ghcb)
 }
 
+fn allocate_ghcb() -> memory_addresses::VirtAddr {
+    let size = (Size4KiB::SIZE as usize).align_up(BasePageSize::SIZE as usize);
+
+    let physical_address = arch::mm::physicalmem::allocate(size).unwrap();
+    let virtual_address = memory_addresses::VirtAddr::new(physical_address.as_u64());
+
+    let count = size / BasePageSize::SIZE as usize;
+    let mut flags = PageTableEntryFlags::empty();
+    flags.normal().writable();
+
+    if sev_state().is_some() {
+        flags.set_encrypted(true);
+    }
+
+    arch::mm::paging::map::<BasePageSize>(virtual_address, physical_address, count, flags);
+
+    virtual_address
+}
+
 pub fn init_ghcb() {
-    print_current_ghcb();
-
     info!("enter init_ghcb");
-    // let ghcb_version = ghcb_negotiate_protocol();
-
-    let ghcb_page = mm::allocate(Size4KiB::SIZE as usize, true);
+    let ghcb_version = ghcb_negotiate_protocol();
+    let ghcb_page = allocate_ghcb();
 
     info!("GHCB memory allocated.");
     // TODO: make the page not encrypted
@@ -111,9 +137,7 @@ pub fn init_ghcb() {
     info!("GHCB memory address page resolved.");
     let TranslateResult::Mapped { frame, mut flags, offset } = page_table.translate(ghcb_page.into()) else { panic!("invalid page address!") };
     assert_eq!(offset, 0);
-
-    info!("GHCB memory address page translated. Current flags: {flags:x} {flags:?}. Frame: {:x}", frame.start_address().as_u64());
-
+    info!("GHCB memory address page translated. Current flags: {flags:x} {flags:?}. Frame: {:x}. Size: {:x}.", frame.start_address().as_u64(), frame.size());
     flags.set_encrypted(false);
     unsafe {
         page_table.update_flags(page, flags)
@@ -121,27 +145,64 @@ pub fn init_ghcb() {
             .flush()
     }
 
+    tlb::flush_all();
+
     info!("GHCB flags updated. Assigning GHCB...");
+    flush_cache(page.start_address(), page.size());
+    info!("Cache cleared");
 
     let ptr: *mut Ghcb = ghcb_page.as_mut_ptr();
     let mut ghcb = Ghcb::default();
-    ghcb.protocol_version = 1;
+    ghcb.protocol_version = ghcb_version;
     unsafe {
         *ptr = ghcb;
     }
 
-    info!("GHCB address: {:x}", frame.start_address().as_u64());
-    unsafe {
-        let address = frame.start_address().as_u64() >> 12;
-        let ghcb_msr_v = ghcb_set_request_value(address, 0);
-        info!("GHCB value: {:x}", ghcb_msr_v);
-        // The value to set in the GHCB MSR is weird
-        // info!("Write GHCB value: {ghcb_msr_v:x}.");
-        GHCB_MSR.inner().write(ghcb_msr_v);
+    info!("GHCB physical address (other way): {:x}", ptr as u64);
 
+    unsafe {
+        (ptr.as_mut()).unwrap().clear();
+    }
+
+    HYPERCALLS.map_gpa_range.call(
+        (u16::from(page.p4_index()) as u64) << 12,
+        1,
+        0
+    ).unwrap();
+
+    info!("GHCB address: {:x}", frame.start_address().as_u64());
+    info!("GHCB contents: (exit info 1): {:x}", unsafe { (ptr.as_ref().unwrap()).save.sw_exit_info_1 });
+
+    unsafe {
+        GHCB_MSR.write_request(GhcbMsrRequest::SetGhcbPhysicalAddress(frame.start_address()))
     }
 
     info!("MSR written.");
+}
+
+
+
+fn flush_cache(start_addr: VirtAddr, size: u64) {
+    // TODO: check feature availability
+    // https://github.com/torvalds/linux/blob/master/arch/x86/include/asm/special_insns.h#L177
+    // https://www.felixcloutier.com/x86/clflushopt
+
+
+    /* The aligned cache line size affected is also indicated with the CPUID instruction (bits 8 through 15 of the EBX register when the initial value in the EAX register is 1). */
+    let start = start_addr.as_u64();
+    let end = start + size;
+
+    let cache_size = 1; // TODO
+
+    if crate::processor::supports_clflush() {
+        for pos in (start..end).step_by(cache_size) {
+            unsafe {
+                core::arch::x86_64::_mm_clflush(pos as *const u8);
+            }
+        }
+    } else {
+        panic!("not implemented: no clflush on CPU")
+    }
 
 }
 
