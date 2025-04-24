@@ -8,8 +8,7 @@ use raw_cpuid::CpuId;
 use memory_addresses::{PhysAddr, VirtAddr};
 use x86_64::registers::control::{Cr0, Cr3, Cr4};
 use x86_64::registers::model_specific::Msr;
-use x86_64::structures::amd_sev::ghcb_msr_protocol::ghcb_request_exit;
-use x86_64::structures::amd_sev::sev_init;
+use x86_64::structures::amd_sev::ghcb_msr_protocol::{ghcb_request_exit, vmgexit};
 use crate::arch::kernel::amd_sev::{ghcb_negotiate_protocol, init_ghcb};
 use self::serial::SerialPort;
 use crate::arch::x86_64::kernel::core_local::*;
@@ -173,6 +172,8 @@ pub fn boot_processor_init() {
 	interrupts::install();
 
 	info!("Interrupts installed!");
+
+	init_ghcb();
 
 	pic::init(); // init PIC after interrupts have been installed (VC handler for AMD SEV)
 
