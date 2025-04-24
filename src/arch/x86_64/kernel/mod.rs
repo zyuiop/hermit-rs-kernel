@@ -171,7 +171,9 @@ pub fn boot_processor_init() {
 
 	info!("Interrupts installed!");
 
-	init_ghcb();
+	if sev.is_some_and(|sev| sev.sev_es_enabled) {
+		init_ghcb();
+	}
 
 	pic::init(); // init PIC after interrupts have been installed (VC handler for AMD SEV)
 
