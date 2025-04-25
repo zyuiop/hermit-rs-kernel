@@ -197,7 +197,11 @@ impl Default for Ghcb {
 
 impl Ghcb {
     pub fn clear(&mut self) {
+        // Preserve scratch address (set by the manager)
+        let scratch = self.save.sw_scratch;
         self.save = Default::default();
+        self.save.sw_scratch = scratch;
+
         self.shared_buffer = [0; GHCB_SHARED_BUF_SIZE];
         // self.protocol_version = 0;
         // self.ghcb_usage = 0;
@@ -206,8 +210,8 @@ impl Ghcb {
     /// Copies the address of the shared buffer in the SW_SCRATCH field of the saved data and marks
     /// that field valid.
     pub fn use_shared_buffer(&mut self) {
-        let ptr: *const u8 = &self.shared_buffer[0];
-        self.save.sw_scratch = ptr as u64;
+        // let ptr: *const u8 = &self.shared_buffer[0];
+        // self.save.sw_scratch = ptr as u64;
         self.save.set_valid_field(& self.save.sw_scratch);
     }
 }

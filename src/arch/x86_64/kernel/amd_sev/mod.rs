@@ -85,14 +85,7 @@ static CONCURRENT_CALLS: core::sync::atomic::AtomicU8 = core::sync::atomic::Atom
 
 pub fn with_ghcb<F, R>(f: F) -> R
 where F: FnOnce(&mut Ghcb) -> R {
-    let concurrent = CONCURRENT_CALLS.fetch_add(1, core::sync::atomic::Ordering::SeqCst);
-
-    // if concurrent > 1 {
-    //    CONCURRENT_CALLS.fetch_sub(concurrent, core::sync::atomic::Ordering::SeqCst);
-    //    sev_exit!(1, "TOO MANY CONCURRENT GHCB CALLS");
-    // }
-
-    let state = GHCB_STATE;
+    let state = unsafe { (&raw mut GHCB_STATE).as_mut().unwrap() };
     let guard = state.lock();
     let ptr = guard.get_ghcb();
 
@@ -100,9 +93,7 @@ where F: FnOnce(&mut Ghcb) -> R {
         ptr.as_mut().unwrap()
     };
 
-    let ret = f(ghcb);
-    CONCURRENT_CALLS.fetch_sub(1, core::sync::atomic::Ordering::SeqCst);
-    ret
+    f(ghcb)
 }
 
 #[derive(PartialEq)]
@@ -136,11 +127,17 @@ impl GhcbState {
             }
         };
 
-        addr as *mut Ghcb
+        let ghcb = addr as *mut Ghcb;
+
+        unsafe {
+            (*ghcb).save.sw_scratch = current_ghcb_addr + GHCB_SCRATCH_OFFSET;
+        }
+
+        ghcb
     }
 }
 
-const GHCB_STATE: InterruptTicketMutex<GhcbState> = InterruptTicketMutex::new(GhcbState::EfiGHCB);
+static mut GHCB_STATE: InterruptTicketMutex<GhcbState> = InterruptTicketMutex::new(GhcbState::EfiGHCB);
 
 fn allocate_ghcb() -> (PhysAddr, VirtAddr) {
     let size = (Size4KiB::SIZE as usize).align_up(BasePageSize::SIZE as usize);
@@ -160,6 +157,8 @@ fn allocate_ghcb() -> (PhysAddr, VirtAddr) {
     (PhysAddr::new(physical_address.as_u64()), VirtAddr::new(virt_addr.as_u64()))
 }
 
+const GHCB_SCRATCH_OFFSET: u64 = core::mem::offset_of!(Ghcb, shared_buffer) as u64;
+
 pub fn init_ghcb() {
     let ghcb_version = ghcb_negotiate_protocol();
     let (ghcb_phys_addr, ghcb_virt_addr) = allocate_ghcb();
@@ -171,42 +170,7 @@ pub fn init_ghcb() {
         *ptr = ghcb;
     }
 
-    let state = GHCB_STATE;
+    let state = unsafe { (&raw mut GHCB_STATE).as_mut().unwrap() };
     let mut state = state.lock();
     *state = GhcbState::KernelAllocated(ghcb_phys_addr, ghcb_virt_addr);
-}
-
-
-
-fn flush_cache(start_addr: VirtAddr, size: u64) {
-    // TODO: check feature availability
-    // https://github.com/torvalds/linux/blob/master/arch/x86/include/asm/special_insns.h#L177
-    // https://www.felixcloutier.com/x86/clflushopt
-
-
-    /* The aligned cache line size affected is also indicated with the CPUID instruction (bits 8 through 15 of the EBX register when the initial value in the EAX register is 1). */
-    let start = start_addr.as_u64();
-    let end = start + size;
-
-    let cache_size = 1; // TODO
-
-    if crate::processor::supports_clflush() {
-        for pos in (start..end).step_by(cache_size) {
-            unsafe {
-                core::arch::x86_64::_mm_clflush(pos as *const u8);
-            }
-        }
-    } else {
-        panic!("not implemented: no clflush on CPU")
-    }
-
-}
-
-// A mask that selects the 52 MSbs
-const GHCB_ADDR_MASK: u64 = 0x0f_ffff_ffff_ffff;
-
-#[inline]
-/// https://www.amd.com/content/dam/amd/en/documents/epyc-technical-docs/specifications/56421.pdf
-fn ghcb_set_request_value(address: u64, request_value: u64) -> u64 {
-    (address & GHCB_ADDR_MASK) << 12 | request_value & 0x0fff
 }
