@@ -9,7 +9,7 @@ use pci_types::CommandRegister;
 use smoltcp::phy::ChecksumCapabilities;
 use volatile::VolatileRef;
 
-use crate::arch::pci::PciConfigRegion;
+use crate::arch::pci::PciConfigAccess;
 use crate::drivers::net::virtio::{CtrlQueue, NetDevCfg, RxQueues, TxQueues, VirtioNetDriver};
 use crate::drivers::pci::PciDevice;
 use crate::drivers::virtio::error::{self, VirtioError};
@@ -34,7 +34,7 @@ impl VirtioNetDriver {
 	/// configuration structures and moving them into the struct.
 	pub(crate) fn new(
 		caps_coll: UniCapsColl,
-		device: &PciDevice<PciConfigRegion>,
+		device: &PciDevice<PciConfigAccess>,
 	) -> Result<Self, error::VirtioNetError> {
 		let device_id = device.device_id();
 		let UniCapsColl {
@@ -83,7 +83,7 @@ impl VirtioNetDriver {
 	/// Returns a driver instance of
 	/// [VirtioNetDriver](structs.virtionetdriver.html) or an [VirtioError](enums.virtioerror.html).
 	pub(crate) fn init(
-		device: &PciDevice<PciConfigRegion>,
+		device: &PciDevice<PciConfigAccess>,
 	) -> Result<VirtioNetDriver, VirtioError> {
 		// enable bus master mode
 		device.set_command(CommandRegister::BUS_MASTER_ENABLE);

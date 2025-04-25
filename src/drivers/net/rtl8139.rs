@@ -11,7 +11,7 @@ use x86_64::instructions::port::Port;
 
 use crate::arch::kernel::interrupts::*;
 use crate::arch::mm::paging::virt_to_phys;
-use crate::arch::pci::PciConfigRegion;
+use crate::arch::pci::PciConfigAccess;
 use crate::drivers::Driver;
 use crate::drivers::error::DriverError;
 use crate::drivers::net::NetworkDriver;
@@ -419,7 +419,7 @@ impl Drop for RTL8139Driver {
 }
 
 pub(crate) fn init_device(
-	device: &PciDevice<PciConfigRegion>,
+	device: &PciDevice<PciConfigAccess>,
 ) -> Result<RTL8139Driver, DriverError> {
 	let irq = device.get_irq().unwrap();
 	let mut iobase: Option<u32> = None;
