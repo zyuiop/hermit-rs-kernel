@@ -169,7 +169,7 @@ impl Default for GhcbSaveArea {
 const GHCB_SHARED_BUF_SIZE: usize =	2032;
 
 #[repr(C, align(0x1000))]
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Ghcb {
     pub save: GhcbSaveArea,
 
