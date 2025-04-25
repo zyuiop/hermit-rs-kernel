@@ -117,47 +117,86 @@ pub enum Register {
 }
 
 impl Register {
-    fn get_register(&self, frame: &InterruptStackFrame) -> u64 {
-        match self {
-            Register::Rax => frame.registers.rax,
-            Register::Rcx => frame.registers.rcx,
-            Register::Rdx => frame.registers.rdx,
-            Register::Rbx => frame.registers.rbx,
-            Register::Rsp => frame.exception.stack_pointer.as_u64(),
-            Register::Rbp => frame.registers.rbp,
-            Register::Rsi => frame.registers.rsi,
-            Register::Rdi => frame.registers.rdi
+    fn get_register(&self, frame: &InterruptStackFrame, x64_extended: bool) -> u64 {
+        if x64_extended {
+            match self {
+                Register::Rax => frame.registers.r8,
+                Register::Rcx => frame.registers.r9,
+                Register::Rdx => frame.registers.r10,
+                Register::Rbx => frame.registers.r11,
+                Register::Rsp => frame.registers.r12,
+                Register::Rbp => frame.registers.r13,
+                Register::Rsi => frame.registers.r14,
+                Register::Rdi => frame.registers.r15
+            }
+        } else {
+            match self {
+                Register::Rax => frame.registers.rax,
+                Register::Rcx => frame.registers.rcx,
+                Register::Rdx => frame.registers.rdx,
+                Register::Rbx => frame.registers.rbx,
+                Register::Rsp => frame.exception.stack_pointer.as_u64(),
+                Register::Rbp => frame.registers.rbp,
+                Register::Rsi => frame.registers.rsi,
+                Register::Rdi => frame.registers.rdi
+            }
         }
     }
 
-    fn as_ptr(&self, frame: &InterruptStackFrame) -> *const u8 {
-        match self {
-            Register::Rax => &frame.registers.rax as *const _ as *const u8,
-            Register::Rcx => &frame.registers.rcx as *const _ as *const u8,
-            Register::Rdx => &frame.registers.rdx as *const _ as *const u8,
-            Register::Rbx => &frame.registers.rbx as *const _ as *const u8,
-            Register::Rsp => &frame.exception.stack_pointer as *const _ as *const u8,
-            Register::Rbp => &frame.registers.rbp as *const _ as *const u8,
-            Register::Rsi => &frame.registers.rsi as *const _ as *const u8,
-            Register::Rdi => &frame.registers.rdi as *const _ as *const u8
+    fn as_ptr(&self, frame: &InterruptStackFrame, x64_extended: bool) -> *const u8 {
+        if x64_extended {
+            match self {
+                Register::Rax => &frame.registers.r8 as *const _ as *const u8,
+                Register::Rcx => &frame.registers.r9 as *const _ as *const u8,
+                Register::Rdx => &frame.registers.r10 as *const _ as *const u8,
+                Register::Rbx => &frame.registers.r11 as *const _ as *const u8,
+                Register::Rsp => &frame.registers.r12 as *const _ as *const u8,
+                Register::Rbp => &frame.registers.r13 as *const _ as *const u8,
+                Register::Rsi => &frame.registers.r14 as *const _ as *const u8,
+                Register::Rdi => &frame.registers.r15 as *const _ as *const u8
+            }
+        } else {
+            match self {
+                Register::Rax => &frame.registers.rax as *const _ as *const u8,
+                Register::Rcx => &frame.registers.rcx as *const _ as *const u8,
+                Register::Rdx => &frame.registers.rdx as *const _ as *const u8,
+                Register::Rbx => &frame.registers.rbx as *const _ as *const u8,
+                Register::Rsp => &frame.exception.stack_pointer as *const _ as *const u8,
+                Register::Rbp => &frame.registers.rbp as *const _ as *const u8,
+                Register::Rsi => &frame.registers.rsi as *const _ as *const u8,
+                Register::Rdi => &frame.registers.rdi as *const _ as *const u8
+            }
         }
     }
 
-    fn as_mut_ptr(&self, frame: &mut InterruptStackFrame) -> *mut u8 {
-        let reference = self.get_register_mut(frame);
+    fn as_mut_ptr(&self, frame: &mut InterruptStackFrame, x64_extended: bool) -> *mut u8 {
+        let reference = self.get_register_mut(frame, x64_extended);
         reference as *mut _ as *mut u8
     }
 
-    fn get_register_mut<'a>(&self, frame: &'a mut InterruptStackFrame) -> &'a mut u64 {
-        match self {
-            Register::Rax => &mut frame.registers.rax,
-            Register::Rcx => &mut frame.registers.rcx,
-            Register::Rdx => &mut frame.registers.rdx,
-            Register::Rbx => &mut frame.registers.rbx,
-            Register::Rsp => unsafe { ((&mut frame.exception.stack_pointer) as *mut _ as *mut u64).as_mut().unwrap() },
-            Register::Rbp => &mut frame.registers.rbp,
-            Register::Rsi => &mut frame.registers.rsi,
-            Register::Rdi => &mut frame.registers.rdi
+    fn get_register_mut<'a>(&self, frame: &'a mut InterruptStackFrame, x64_extended: bool) -> &'a mut u64 {
+        if x64_extended {
+            match self {
+                Register::Rax => &mut frame.registers.r8,
+                Register::Rcx => &mut frame.registers.r9,
+                Register::Rdx => &mut frame.registers.r10,
+                Register::Rbx => &mut frame.registers.r11,
+                Register::Rsp => &mut frame.registers.r12,
+                Register::Rbp => &mut frame.registers.r13,
+                Register::Rsi => &mut frame.registers.r14,
+                Register::Rdi => &mut frame.registers.r15
+            }
+        } else {
+            match self {
+                Register::Rax => &mut frame.registers.rax,
+                Register::Rcx => &mut frame.registers.rcx,
+                Register::Rdx => &mut frame.registers.rdx,
+                Register::Rbx => &mut frame.registers.rbx,
+                Register::Rsp => unsafe { ((&mut frame.exception.stack_pointer) as *mut _ as *mut u64).as_mut().unwrap() },
+                Register::Rbp => &mut frame.registers.rbp,
+                Register::Rsi => &mut frame.registers.rsi,
+                Register::Rdi => &mut frame.registers.rdi
+            }
         }
     }
 
@@ -242,22 +281,22 @@ pub struct ExtendedRegister(pub Register, pub bool);
 impl ExtendedRegister {
     pub fn get_register(&self, frame: &InterruptStackFrame) -> u64 {
         // TODO: implement extended mode
-        self.0.get_register(frame)
+        self.0.get_register(frame, self.1)
     }
 
     pub fn as_ptr(&self, frame: &InterruptStackFrame) -> *const u8 {
         // TODO: implement extended mode
-        self.0.as_ptr(frame)
+        self.0.as_ptr(frame, self.1)
     }
 
     pub fn as_mut_ptr(&self, frame: &mut InterruptStackFrame) -> *mut u8 {
         // TODO: implement extended mode
-        self.0.as_mut_ptr(frame)
+        self.0.as_mut_ptr(frame, self.1)
     }
 
     pub fn get_register_mut<'a>(&self, frame: &'a mut InterruptStackFrame) -> &'a mut u64 {
         // TODO: implement extended mode
-        self.0.get_register_mut(frame)
+        self.0.get_register_mut(frame, self.1)
     }
 }
 
@@ -368,7 +407,7 @@ impl ModRmInfo {
             // Simple mode
             displacement + match target {
                 RegisterOrMemory::MemoryOffset(reg) => {
-                    reg.get_register(frame)
+                    Self::extend_base_or_rm(instruction_data, reg).get_register(frame)
                 }
                 RegisterOrMemory::RelativeToInstruction => {
                     frame.exception.instruction_pointer.as_u64()
