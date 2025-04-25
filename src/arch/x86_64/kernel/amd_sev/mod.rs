@@ -28,46 +28,31 @@ mod ghcb_protocol;
 use align_address::Align;
 use hermit_sync::{InterruptSpinMutex, InterruptTicketMutex, Lazy};
 pub use handler::vmm_interrupt_exception;
-
+use alloc::boxed::Box;
+use core::alloc::{Allocator, Layout};
 use x86_64::structures::paging::{Mapper, Page, PageSize, Size4KiB, Translate};
 use ghcb_msr_protocol::{GhcbMsrRequest, GhcbMsrResponse, GHCB_MSR};
 use ghcb_protocol::Ghcb;
 use crate::arch::{BasePageSize};
 use crate::arch::mm::paging::{HugePageSize, PageTableEntryFlags, PageTableEntryFlagsExt};
-use crate::arch;
+use crate::{arch, mm};
 
-/* 
-#define GHCB_SHARED_BUF_SIZE	2032
-
-struct ghcb {
-	struct ghcb_save_area save;
-	u8 reserved_save[2048 - sizeof(struct ghcb_save_area)];
-
-	u8 shared_buffer[GHCB_SHARED_BUF_SIZE];
-
-	u8 reserved_0xff0[10];
-	u16 protocol_version;	/* negotiated SEV-ES/GHCB protocol version */
-	u32 ghcb_usage;
-} __packed;
- */
 
 pub use ghcb_msr_protocol::ghcb_request_exit;
 use x86_64::VirtAddr;
 use memory_addresses::PhysAddr;
 use crate::arch::mm::{paging, virtualmem};
 use crate::env::kernel::amd_sev::handler::error_exit_codes;
+use crate::mm::device_alloc::DeviceAlloc;
 
 const MAX_GHCB_PROTOCOL_VERSION: u16 = 1;
 
 pub fn ghcb_negotiate_protocol() -> u16 {
-    let data = GHCB_MSR.read_state();
-    info!("Read GHCB MSR : {data:?}");
-;
     let GhcbMsrResponse::SevInformation { max_proto, min_proto, c_bit_pos } =
         GHCB_MSR.send_request_restore(GhcbMsrRequest::SevRequest) else {
         sev_exit!(error_exit_codes::EXIT_VC_INVALID_EXIT_CODE, "Invalid GHCB MSR response"); };
 
-    info!("Got GHCB protocol versions: max={max_proto}, min={min_proto} - c_bit_pos={c_bit_pos}");
+    // info!("Got GHCB protocol versions: max={max_proto}, min={min_proto} - c_bit_pos={c_bit_pos}");
 
     if max_proto < MAX_GHCB_PROTOCOL_VERSION || min_proto > MAX_GHCB_PROTOCOL_VERSION {
         sev_exit!(error_exit_codes::EXIT_OTHER, "GHCB version negotiation failed: wrong protocol version");
@@ -80,41 +65,35 @@ pub fn ghcb_negotiate_protocol() -> u16 {
     }
 }
 
-
-static CONCURRENT_CALLS: core::sync::atomic::AtomicU8 = core::sync::atomic::AtomicU8::new(0);
-
 pub fn with_ghcb<F, R>(f: F) -> R
 where F: FnOnce(&mut Ghcb) -> R {
     let state = unsafe { (&raw mut GHCB_STATE).as_mut().unwrap() };
-    let guard = state.lock();
-    let ptr = guard.get_ghcb();
-
-    let ghcb = unsafe {
-        ptr.as_mut().unwrap()
-    };
-
+    let mut guard = state.lock();
+    let ghcb = guard.get_ghcb();
     f(ghcb)
 }
 
-#[derive(PartialEq)]
 enum GhcbState {
     /// The GHCB is still the one allocated by the bootloader for us
     EfiGHCB,
 
     /// The GHCB is the one allocated by the kernel
-    KernelAllocated(PhysAddr, VirtAddr)
+    KernelAllocated(AllocatedGhcb)
 }
 
 impl GhcbState {
-    fn get_ghcb(&self) -> *mut Ghcb {
+    fn get_ghcb(&mut self) -> &mut Ghcb {
         // Read address from the GHCB
         let GhcbMsrResponse::GhcbPhysicalAddress(current_ghcb_addr) = GHCB_MSR.read_state() else {
             sev_exit!(error_exit_codes::EXIT_VC_INVALID_EXIT_CODE, "Invalid GHCB MSR response"); };
         let current_ghcb_addr = current_ghcb_addr.as_u64();
 
-        let addr = match self {
-            GhcbState::EfiGHCB => current_ghcb_addr,
-            GhcbState::KernelAllocated(pa, va) => {
+        let (ghcb, current_ghcb_addr) = match self {
+            GhcbState::EfiGHCB => {
+                let addr = current_ghcb_addr as *mut Ghcb;
+                (unsafe { addr.as_mut().unwrap() }, current_ghcb_addr)
+            },
+            GhcbState::KernelAllocated(AllocatedGhcb(pa, boxed)) => {
                 // Ensure the address is set in the GHCB
                 if pa.as_u64() != current_ghcb_addr {
                     // Set the correct GHCB address
@@ -123,27 +102,29 @@ impl GhcbState {
                     }
                 }
 
-                va.as_u64()
+                (boxed.as_mut(), pa.as_u64())
             }
         };
 
-        let ghcb = addr as *mut Ghcb;
-
-        unsafe {
-            (*ghcb).save.sw_scratch = current_ghcb_addr + GHCB_SCRATCH_OFFSET;
-        }
-
+        ghcb.save.sw_scratch = current_ghcb_addr + GHCB_SCRATCH_OFFSET;
         ghcb
     }
 }
 
 static mut GHCB_STATE: InterruptTicketMutex<GhcbState> = InterruptTicketMutex::new(GhcbState::EfiGHCB);
 
-fn allocate_ghcb() -> (PhysAddr, VirtAddr) {
-    let size = (Size4KiB::SIZE as usize).align_up(BasePageSize::SIZE as usize);
+struct AllocatedGhcb(PhysAddr, Box<Ghcb, DeviceAlloc>);
 
-    let physical_address = arch::mm::physicalmem::allocate(size).unwrap();
-    let virt_addr= virtualmem::allocate(size).unwrap();
+fn allocate_ghcb() -> AllocatedGhcb {
+    // let physical_address = arch::mm::physicalmem::allocate(size).unwrap();
+    // let virt_addr = virtualmem::allocate(size).unwrap();
+    // let virt_addr = mm::allocate(size, true);
+    // let physical_address = mm::virtual_to_physical(virt_addr).unwrap();
+    let virt_addr = DeviceAlloc.allocate(Layout::new::<Ghcb>()).unwrap();
+    let virt_addr = memory_addresses::VirtAddr::new(virt_addr.addr().get() as u64);
+    let physical_address = mm::virtual_to_physical(virt_addr).unwrap();
+
+
     let mut flags = PageTableEntryFlags::empty();
     flags.normal().writable().execute_disable();
     // No encryption flag!
@@ -154,23 +135,19 @@ fn allocate_ghcb() -> (PhysAddr, VirtAddr) {
         flags,
     );
 
-    (PhysAddr::new(physical_address.as_u64()), VirtAddr::new(virt_addr.as_u64()))
+    let boxed = unsafe { Box::from_raw_in(virt_addr.as_mut_ptr(), DeviceAlloc) };
+    AllocatedGhcb(PhysAddr::new(physical_address.as_u64()), boxed)
 }
 
 const GHCB_SCRATCH_OFFSET: u64 = core::mem::offset_of!(Ghcb, shared_buffer) as u64;
 
 pub fn init_ghcb() {
     let ghcb_version = ghcb_negotiate_protocol();
-    let (ghcb_phys_addr, ghcb_virt_addr) = allocate_ghcb();
+    let mut allocated = allocate_ghcb();
 
-    let ptr: *mut Ghcb = ghcb_virt_addr.as_mut_ptr();
-    let mut ghcb = Ghcb::default();
-    ghcb.protocol_version = ghcb_version;
-    unsafe {
-        *ptr = ghcb;
-    }
+    allocated.1.protocol_version = ghcb_version;
 
     let state = unsafe { (&raw mut GHCB_STATE).as_mut().unwrap() };
     let mut state = state.lock();
-    *state = GhcbState::KernelAllocated(ghcb_phys_addr, ghcb_virt_addr);
+    *state = GhcbState::KernelAllocated(allocated);
 }
