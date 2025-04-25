@@ -25,10 +25,8 @@ pub mod handler_ap;
 mod ghcb_msr_protocol;
 mod ghcb_protocol;
 
-use core::arch::asm;
 use align_address::Align;
-use hermit_sync::{InterruptTicketMutex, Lazy};
-use x86_64::instructions::tlb;
+use hermit_sync::{InterruptSpinMutex, InterruptTicketMutex, Lazy};
 pub use handler::vmm_interrupt_exception;
 
 use x86_64::structures::paging::{Mapper, Page, PageSize, Size4KiB, Translate};
@@ -54,13 +52,10 @@ struct ghcb {
  */
 
 pub use ghcb_msr_protocol::ghcb_request_exit;
-use x86_64::structures::amd_sev::sev_state;
 use x86_64::VirtAddr;
 use memory_addresses::PhysAddr;
-use crate::arch::kernel::amd_sev::handler_vmmcall::Hypercalls;
 use crate::arch::mm::{paging, virtualmem};
 use crate::env::kernel::amd_sev::handler::error_exit_codes;
-use crate::env::kernel::amd_sev::handler_vmmcall::HYPERCALLS;
 
 const MAX_GHCB_PROTOCOL_VERSION: u16 = 1;
 
@@ -86,15 +81,17 @@ pub fn ghcb_negotiate_protocol() -> u16 {
 }
 
 
-pub fn print_current_ghcb() {
-    with_ghcb(|ghcb| {
-        info!("Current GHCB: {ghcb:?}");
-        info!("GHCB size: {}", size_of::<Ghcb>());
-    });
-}
+static CONCURRENT_CALLS: core::sync::atomic::AtomicU8 = core::sync::atomic::AtomicU8::new(0);
 
 pub fn with_ghcb<F, R>(f: F) -> R
 where F: FnOnce(&mut Ghcb) -> R {
+    let concurrent = CONCURRENT_CALLS.fetch_add(1, core::sync::atomic::Ordering::SeqCst);
+
+    // if concurrent > 1 {
+    //    CONCURRENT_CALLS.fetch_sub(concurrent, core::sync::atomic::Ordering::SeqCst);
+    //    sev_exit!(1, "TOO MANY CONCURRENT GHCB CALLS");
+    // }
+
     let state = GHCB_STATE;
     let guard = state.lock();
     let ptr = guard.get_ghcb();
@@ -102,9 +99,13 @@ where F: FnOnce(&mut Ghcb) -> R {
     let ghcb = unsafe {
         ptr.as_mut().unwrap()
     };
-    f(ghcb)
+
+    let ret = f(ghcb);
+    CONCURRENT_CALLS.fetch_sub(1, core::sync::atomic::Ordering::SeqCst);
+    ret
 }
 
+#[derive(PartialEq)]
 enum GhcbState {
     /// The GHCB is still the one allocated by the bootloader for us
     EfiGHCB,
