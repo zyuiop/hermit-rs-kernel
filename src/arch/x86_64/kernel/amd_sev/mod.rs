@@ -25,13 +25,11 @@ mod opcodes;
 pub(crate) mod paravirt_uart;
 
 use core::ops::{Deref, DerefMut};
-use core::sync::atomic::{AtomicU8, Ordering};
-
+use core::sync::atomic::{AtomicU8, AtomicBool, Ordering};
 pub use ghcb_msr_protocol::ghcb_request_exit;
 use ghcb_msr_protocol::{GHCB_MSR, GhcbMsrRequest, GhcbMsrResponse};
 use ghcb_protocol::Ghcb;
 pub use handler::vmm_interrupt_exception;
-use hermit_sync::RwSpinLock;
 use memory_addresses::PhysAddr;
 
 use crate::env::kernel::amd_sev::handler::error_exit_codes;
@@ -115,7 +113,7 @@ struct AllocatedGhcb {
 	inner: *mut Ghcb,
 	instance_count: AtomicU8,
 
-	backup_present: hermit_sync::RwSpinLock<bool>,
+	backup_present: AtomicBool,
 	backup: *mut Ghcb,
 }
 
@@ -137,14 +135,13 @@ impl<'a> Drop for GhcbLock<'a> {
 
 		if self.instance_number > 1 {
 			// Restore the copy of the GHCB before returning
-			let mut backup_present = self.parent.backup_present.write();
-			if !*backup_present {
+			let backup_present = self.parent.backup_present.fetch_and(false, Ordering::AcqRel);
+			if !backup_present {
 				self.parent.critical_failure("GHCB copy is missing")
 			} else {
 				unsafe {
 					core::ptr::copy(self.parent.backup, self.parent.inner, 1);
 				}
-				*backup_present = false;
 			}
 		}
 	}
@@ -175,7 +172,7 @@ impl AllocatedGhcb {
 			inner: virt_addr.as_mut_ptr(),
 			instance_count: AtomicU8::new(0),
 			backup: backup_virt_addr.as_mut_ptr(),
-			backup_present: RwSpinLock::new(false),
+			backup_present: AtomicBool::new(false)
 		}
 	}
 
@@ -192,15 +189,13 @@ impl AllocatedGhcb {
 
 		if instance_number > 1 {
 			// Nested call: we need to make a copy of the current GHCB
-			let mut backup_present = self.backup_present.write();
-			if *backup_present {
+			let backup_present = self.backup_present.fetch_or(true, Ordering::AcqRel);
+			if backup_present {
 				self.critical_failure("GHCB backup already present!")
 			}
 			unsafe {
 				core::ptr::copy(self.inner, self.backup, 1);
 			}
-            *backup_present = true;
-			drop(backup_present);
 		}
 
 		lock
