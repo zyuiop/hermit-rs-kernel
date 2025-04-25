@@ -16,8 +16,7 @@ impl VcHandler for IoIoHandler {
 		let info = IoIoExitInfo::from_instruction(instruction_data, &frame.registers);
 
 		if info.flags.contains(IoIoExitFlags::STRING) {
-			ghcb_request_exit(error_exit_codes::EXIT_VC_NOT_IMPLEMENTED);
-			todo!("string mode")
+			sev_exit!(error_exit_codes::EXIT_VC_NOT_IMPLEMENTED, "string based ioio is not implemented yet");
 		} else {
 			/* is not in string mode */
 			ghcb.save.rax = if info.flags.contains(IoIoExitFlags::INPUT) {

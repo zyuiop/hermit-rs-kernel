@@ -8,6 +8,7 @@ pub struct IoIoExplicitProtocolExit<'a> {
     data: IoIoExplicitProtocolExitData<'a>
 }
 
+#[derive(Debug)]
 pub enum IoIoExplicitProtocolExitData<'a> {
     StringOut(&'a [u8]),
     StringIn(&'a mut [u8]),
@@ -125,10 +126,19 @@ pub fn outb(port: u16, val: u8) {
     IoIoExplicitProtocolExit::new(port, IoIoExplicitProtocolExitData::ByteOut(val)).execute().unwrap()
 }
 
-/// Read 8 bits from port
-///
-/// # Safety
-/// Needs IO privileges.
+#[inline]
+pub fn out_u32(port: u16, val: u32) {
+    IoIoExplicitProtocolExit::new(port, IoIoExplicitProtocolExitData::DblWordOut(val)).execute().unwrap()
+}
+
+
+#[inline]
+pub fn in_u32(port: u16) -> u32 {
+    let mut ret: u32 = 0;
+    IoIoExplicitProtocolExit::new(port, IoIoExplicitProtocolExitData::DblWordIn(&mut ret)).execute().unwrap();
+    ret
+}
+
 #[inline]
 pub fn inb(port: u16) -> u8 {
     let mut ret: u8 = 0;
