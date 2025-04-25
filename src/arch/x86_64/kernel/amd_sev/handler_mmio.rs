@@ -151,11 +151,27 @@ impl VcHandler for MmioHandler {
                     mmio_read(ghcb, PhysAddr::new(address.as_u64()), register.as_mut_ptr(frame), size)
                 }
             }
-            0xA2 | 0xA3 => {
-                // MOV rax, offset
-                todo!()
+            0xb6 | 0xb7 => {
+                // MOVZX regx, reg/memX
+                // Read with zero extension
+
+                let (register, address) = unsafe { read_operand_mode(instruction_data, frame) };
+                let size = if opcode == 0xb6 { 1 } else { 2 };
+                
+                unsafe {
+                    // TODO: do we need to translate the address here?
+                    mmio_read(ghcb, PhysAddr::new(address.as_u64()), register.as_mut_ptr(frame), size)?;
+                }
+                
+                if size == 1 {
+                    *register.get_register_mut(frame) &= 0xff;
+                } else {
+                    *register.get_register_mut(frame) &= 0xffff;
+                }
+                
+                Ok(())
             }
-            other => panic!("unhandled mmio error for opcode {other:x}")
+            other => panic!("unhandled mmio opcode {other:x}")
         }
 
     }

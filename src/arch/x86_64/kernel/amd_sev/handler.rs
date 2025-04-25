@@ -30,6 +30,10 @@ pub extern "x86-interrupt" fn vmm_interrupt_exception(
             "push rbp",
 
             // Scratch registers (x64)
+            "push r15",
+            "push r14",
+            "push r13",
+            "push r12",
             "push r11",
             "push r10",
             "push r9",
@@ -67,6 +71,10 @@ pub extern "x86-interrupt" fn vmm_interrupt_exception(
             "pop r9",
             "pop r10",
             "pop r11",
+            "pop r12",
+            "pop r13",
+            "pop r14",
+            "pop r15",
             "pop rbp",
 
             // Skip error code! iretq expects the error code to have been popped
@@ -116,6 +124,10 @@ pub struct SavedRegisters {
     pub r9: u64,
     pub r10: u64,
     pub r11: u64,
+    pub r12: u64,
+    pub r13: u64,
+    pub r14: u64,
+    pub r15: u64,
     pub rbp: u64,
 }
 
@@ -147,6 +159,8 @@ extern "C" fn vmm_interrupt_exception_inner(
 
 /// Custom exit codes to help with debugging
 pub mod error_exit_codes {
+    pub const EXIT_VC_OVERFLOW: u8 = 0x60;
+    
     pub const EXIT_VC_INVALIDOP: u8 = 0x70;
 
     pub const EXIT_VC_UNHANDLED: u8 = 0x80;
