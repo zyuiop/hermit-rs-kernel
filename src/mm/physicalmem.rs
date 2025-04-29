@@ -1,11 +1,12 @@
 use core::sync::atomic::{AtomicUsize, Ordering};
+use num::Integer;
 
 use align_address::Align;
 use free_list::{AllocError, FreeList, PageLayout, PageRange};
 use hermit_sync::InterruptTicketMutex;
 use memory_addresses::{PhysAddr, VirtAddr};
 
-use crate::arch::mm::paging::{self, BasePageSize, PageSize};
+use crate::arch::mm::paging::{self, BasePageSize, PageSize, LargePageSize};
 use crate::env;
 
 pub static PHYSICAL_FREE_LIST: InterruptTicketMutex<FreeList<16>> =
@@ -60,8 +61,8 @@ fn detect_from_fdt() -> Result<(), ()> {
 		found_ram = true;
 
 		let range = PageRange::from_start_len(
-			biggest_region.starting_address.addr(),
-			biggest_region.size.unwrap(),
+			biggest_region.starting_address.addr().next_multiple_of(LargePageSize::SIZE as usize),
+			biggest_region.size.unwrap().prev_multiple_of(&(LargePageSize::SIZE as usize)),
 		)
 		.unwrap();
 
