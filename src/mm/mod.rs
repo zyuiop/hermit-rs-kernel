@@ -1,5 +1,5 @@
-pub(crate) mod allocator;
-pub(crate) mod device_alloc;
+pub(crate) mod allocator; 
+mod device_alloc;
 pub(crate) mod physicalmem;
 pub(crate) mod virtualmem;
 
@@ -21,6 +21,12 @@ use crate::{arch, env};
 #[cfg(target_os = "none")]
 #[global_allocator]
 pub(crate) static ALLOCATOR: LockedAllocator = LockedAllocator::new();
+
+#[cfg(not(feature = "amd-sev"))]
+pub(crate) use crate::mm::device_alloc::DeviceAlloc as DeviceAllocator;
+
+#[cfg(feature = "amd-sev")]
+pub(crate) use crate::arch::x86_64::kernel::amd_sev::decrypted_allocator::SharedPagesAllocator as DeviceAllocator;
 
 /// Physical and virtual address range of the 2 MiB pages that map the kernel.
 static KERNEL_ADDR_RANGE: Lazy<Range<VirtAddr>> = Lazy::new(|| {
@@ -246,7 +252,7 @@ pub(crate) fn print_information() {
 }
 
 /// Maps a given physical address and size in virtual space and returns address.
-#[cfg(feature = "pci")]
+#[cfg(any(feature = "pci", feature = "amd-sev"))]
 pub(crate) fn map(
 	physical_address: PhysAddr,
 	size: usize,

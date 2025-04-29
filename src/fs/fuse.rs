@@ -27,10 +27,9 @@ use crate::fs::{
 	self, AccessPermission, DirectoryEntry, FileAttr, NodeKind, ObjectInterface, OpenOption,
 	SeekWhence, VfsNode,
 };
-use crate::mm::device_alloc::DeviceAlloc;
 use crate::time::{time_t, timespec};
 use crate::{arch, io};
-
+use crate::mm::DeviceAllocator;
 // response out layout eg @ https://github.com/zargony/fuse-rs/blob/bf6d1cf03f3277e35b580f3c7b9999255d72ecf3/src/ll/request.rs#L44
 // op in/out sizes/layout: https://github.com/hanwen/go-fuse/blob/204b45dba899dfa147235c255908236d5fde2d32/fuse/opcode.go#L439
 // possible responses for command: qemu/tools/virtiofsd/fuse_lowlevel.h
@@ -484,8 +483,8 @@ impl<O: ops::Op> CmdHeader<O> {
 }
 
 pub(crate) struct Cmd<O: ops::Op> {
-	pub headers: Box<CmdHeader<O>, DeviceAlloc>,
-	pub payload: Option<Vec<u8, DeviceAlloc>>,
+	pub headers: Box<CmdHeader<O>, DeviceAllocator>,
+	pub payload: Option<Vec<u8, DeviceAllocator>>,
 }
 
 impl<O: ops::Op> Cmd<O>
@@ -494,7 +493,7 @@ where
 {
 	fn new(nodeid: u64, op_header: O::InStruct) -> Self {
 		Self {
-			headers: Box::new_in(CmdHeader::new(nodeid, op_header), DeviceAlloc),
+			headers: Box::new_in(CmdHeader::new(nodeid, op_header), DeviceAllocator),
 			payload: None,
 		}
 	}
@@ -505,11 +504,11 @@ where
 	O: ops::Op<InPayload = CString>,
 {
 	fn with_cstring(nodeid: u64, op_header: O::InStruct, cstring: CString) -> Self {
-		let cstring_bytes = cstring.into_bytes_with_nul().to_vec_in(DeviceAlloc);
+		let cstring_bytes = cstring.into_bytes_with_nul().to_vec_in(DeviceAllocator);
 		Self {
 			headers: Box::new_in(
 				CmdHeader::with_payload_size(nodeid, op_header, cstring_bytes.len()),
-				DeviceAlloc,
+				DeviceAllocator,
 			),
 			payload: Some(cstring_bytes),
 		}
@@ -521,12 +520,12 @@ where
 	O: ops::Op<InPayload = [u8]>,
 {
 	fn with_boxed_slice(nodeid: u64, op_header: O::InStruct, slice: Box<[u8]>) -> Self {
-		let mut device_slice = Vec::with_capacity_in(slice.len(), DeviceAlloc);
+		let mut device_slice = Vec::with_capacity_in(slice.len(), DeviceAllocator);
 		device_slice.extend_from_slice(&slice);
 		Self {
 			headers: Box::new_in(
 				CmdHeader::with_payload_size(nodeid, op_header, slice.len()),
-				DeviceAlloc,
+				DeviceAllocator,
 			),
 			payload: Some(device_slice),
 		}
@@ -542,8 +541,8 @@ pub(crate) struct RspHeader<O: ops::Op> {
 
 #[derive(Debug)]
 pub(crate) struct Rsp<O: ops::Op> {
-	pub headers: Box<RspHeader<O>, DeviceAlloc>,
-	pub payload: Option<Vec<u8, DeviceAlloc>>,
+	pub headers: Box<RspHeader<O>, DeviceAllocator>,
+	pub payload: Option<Vec<u8, DeviceAllocator>>,
 }
 
 fn lookup(name: CString) -> Option<u64> {

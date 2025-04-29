@@ -29,7 +29,6 @@ use crate::drivers::net::NetworkDriver;
 use crate::drivers::pci as hardware;
 use crate::drivers::{Driver, InterruptLine};
 use crate::executor::device::{RxToken, TxToken};
-use crate::mm::device_alloc::DeviceAlloc;
 use crate::{BasePageSize, PageSize};
 
 //Base address of the control registers

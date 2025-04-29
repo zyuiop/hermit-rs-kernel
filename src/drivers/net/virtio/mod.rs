@@ -35,7 +35,7 @@ use crate::drivers::virtio::virtqueue::{
 };
 use crate::drivers::{Driver, InterruptLine};
 use crate::executor::device::{RxToken, TxToken};
-use crate::mm::device_alloc::DeviceAlloc;
+use crate::mm::DeviceAllocator;
 
 /// A wrapper struct for the raw configuration structure.
 /// Handling the right access to fields, as some are read-only
@@ -116,10 +116,10 @@ fn fill_queue(vq: &mut dyn Virtq, num_packets: u16, packet_size: u32) {
 		let buff_tkn = match AvailBufferToken::new(
 			vec![],
 			vec![
-				BufferElem::Sized(Box::<Hdr, _>::new_uninit_in(DeviceAlloc)),
+				BufferElem::Sized(Box::<Hdr, _>::new_uninit_in(DeviceAllocator)),
 				BufferElem::Vector(Vec::with_capacity_in(
 					packet_size.try_into().unwrap(),
-					DeviceAlloc,
+					DeviceAllocator,
 				)),
 			],
 		) {
@@ -249,14 +249,14 @@ impl NetworkDriver for VirtioNetDriver {
 		self.send_vqs.poll();
 
 		assert!(len < usize::try_from(self.send_vqs.packet_length).unwrap());
-		let mut packet = Vec::with_capacity_in(len, DeviceAlloc);
+		let mut packet = Vec::with_capacity_in(len, DeviceAllocator);
 		let result = unsafe {
 			let result = f(packet.spare_capacity_mut().assume_init_mut());
 			packet.set_len(len);
 			result
 		};
 
-		let mut header = Box::new_in(<Hdr as Default>::default(), DeviceAlloc);
+		let mut header = Box::new_in(<Hdr as Default>::default(), DeviceAllocator);
 		// If a checksum isn't necessary, we have inform the host within the header
 		// see Virtio specification 5.1.6.2
 		if !self.checksums.tcp.tx() || !self.checksums.udp.tx() {

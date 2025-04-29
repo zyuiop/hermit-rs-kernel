@@ -29,7 +29,7 @@ use super::{
 };
 use crate::arch::mm::paging;
 use crate::arch::mm::paging::{BasePageSize, PageSize};
-use crate::mm::device_alloc::DeviceAlloc;
+use crate::mm::DeviceAllocator;
 
 #[derive(Default, PartialEq, Eq, Clone, Copy, Debug)]
 struct RingIdx {
@@ -87,7 +87,7 @@ impl WrapCount {
 
 /// Structure which allows to control raw ring and operate easily on it
 struct DescriptorRing {
-	ring: Box<[pvirtq::Desc], DeviceAlloc>,
+	ring: Box<[pvirtq::Desc], DeviceAllocator>,
 	tkn_ref_ring: Box<[Option<Box<TransferToken<pvirtq::Desc>>>]>,
 
 	// Controlling variables for the ring
@@ -108,7 +108,7 @@ struct DescriptorRing {
 
 impl DescriptorRing {
 	fn new(size: u16) -> Self {
-		let ring = unsafe { Box::new_zeroed_slice_in(size.into(), DeviceAlloc).assume_init() };
+		let ring = unsafe { Box::new_zeroed_slice_in(size.into(), DeviceAllocator).assume_init() };
 
 		// `Box` is not Clone, so neither is `None::<Box<_>>`. Hence, we need to produce `None`s with a closure.
 		let tkn_ref_ring = core::iter::repeat_with(|| None)
@@ -676,8 +676,8 @@ impl Virtq for PackedVq {
 		let _mem_len =
 			core::mem::size_of::<pvirtq::EventSuppress>().align_up(BasePageSize::SIZE as usize);
 
-		let drv_event = Box::<pvirtq::EventSuppress, _>::new_zeroed_in(DeviceAlloc);
-		let dev_event = Box::<pvirtq::EventSuppress, _>::new_zeroed_in(DeviceAlloc);
+		let drv_event = Box::<pvirtq::EventSuppress, _>::new_zeroed_in(DeviceAllocator);
+		let dev_event = Box::<pvirtq::EventSuppress, _>::new_zeroed_in(DeviceAllocator);
 		// TODO: make this safe using zerocopy
 		let drv_event = unsafe { drv_event.assume_init() };
 		let dev_event = unsafe { dev_event.assume_init() };

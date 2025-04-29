@@ -22,7 +22,7 @@ use crate::drivers::virtio::virtqueue::{
 	AvailBufferToken, BufferElem, BufferType, Virtq, VqIndex, VqSize,
 };
 use crate::fs::fuse::{self, FuseInterface, Rsp, RspHeader};
-use crate::mm::device_alloc::DeviceAlloc;
+use crate::mm::DeviceAllocator;
 
 /// A wrapper struct for the raw configuration structure.
 /// Handling the right access to fields, as some are read-only
@@ -174,11 +174,11 @@ impl FuseInterface for VirtioFsDriver {
 			vec![BufferElem::Sized(cmd_headers)]
 		};
 
-		let rsp_headers = Box::<RspHeader<O>, _>::new_uninit_in(DeviceAlloc);
+		let rsp_headers = Box::<RspHeader<O>, _>::new_uninit_in(DeviceAllocator);
 		let recv = if rsp_payload_len == 0 {
 			vec![BufferElem::Sized(rsp_headers)]
 		} else {
-			let rsp_payload = Vec::with_capacity_in(rsp_payload_len as usize, DeviceAlloc);
+			let rsp_payload = Vec::with_capacity_in(rsp_payload_len as usize, DeviceAllocator);
 			vec![
 				BufferElem::Sized(rsp_headers),
 				BufferElem::Vector(rsp_payload),

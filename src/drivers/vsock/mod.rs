@@ -22,17 +22,17 @@ use crate::drivers::virtio::virtqueue::{
 };
 #[cfg(feature = "pci")]
 use crate::drivers::vsock::pci::VsockDevCfgRaw;
-use crate::mm::device_alloc::DeviceAlloc;
+use crate::mm::DeviceAllocator;
 
 fn fill_queue(vq: &mut dyn Virtq, num_packets: u16, packet_size: u32) {
 	for _ in 0..num_packets {
 		let buff_tkn = match AvailBufferToken::new(
 			vec![],
 			vec![
-				BufferElem::Sized(Box::<Hdr, _>::new_uninit_in(DeviceAlloc)),
+				BufferElem::Sized(Box::<Hdr, _>::new_uninit_in(DeviceAllocator)),
 				BufferElem::Vector(Vec::with_capacity_in(
 					packet_size.try_into().unwrap(),
-					DeviceAlloc,
+					DeviceAllocator,
 				)),
 			],
 		) {
@@ -163,7 +163,7 @@ impl TxQueue {
 		self.poll();
 		if let Some(ref mut vq) = self.vq {
 			assert!(len < usize::try_from(self.packet_length).unwrap());
-			let mut packet = Vec::with_capacity_in(len, DeviceAlloc);
+			let mut packet = Vec::with_capacity_in(len, DeviceAllocator);
 			let result = unsafe {
 				let result = f(packet.spare_capacity_mut().assume_init_mut());
 				packet.set_len(len);

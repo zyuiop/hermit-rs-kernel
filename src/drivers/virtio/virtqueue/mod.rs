@@ -28,7 +28,7 @@ use super::transport::mmio::{ComCfg, NotifCfg};
 #[cfg(feature = "pci")]
 use super::transport::pci::{ComCfg, NotifCfg};
 use crate::arch::mm::paging;
-use crate::mm::device_alloc::DeviceAlloc;
+use crate::mm::DeviceAllocator;
 
 /// A u16 newtype. If instantiated via ``VqIndex::from(T)``, the newtype is ensured to be
 /// smaller-equal to `min(u16::MAX , T::MAX)`.
@@ -345,8 +345,8 @@ impl<Descriptor> TransferToken<Descriptor> {
 
 #[derive(Debug)]
 pub enum BufferElem {
-	Sized(Box<dyn Any + Send, DeviceAlloc>),
-	Vector(Vec<u8, DeviceAlloc>),
+	Sized(Box<dyn Any + Send, DeviceAllocator>),
+	Vector(Vec<u8, DeviceAllocator>),
 }
 
 impl BufferElem {
@@ -419,7 +419,7 @@ pub(crate) struct UsedDeviceWritableBuffer {
 }
 
 impl UsedDeviceWritableBuffer {
-	pub fn pop_front_downcast<T>(&mut self) -> Option<Box<T, DeviceAlloc>>
+	pub fn pop_front_downcast<T>(&mut self) -> Option<Box<T, DeviceAllocator>>
 	where
 		T: Any,
 	{
@@ -445,7 +445,7 @@ impl UsedDeviceWritableBuffer {
 		}
 	}
 
-	pub fn pop_front_vec(&mut self) -> Option<Vec<u8, DeviceAlloc>> {
+	pub fn pop_front_vec(&mut self) -> Option<Vec<u8, DeviceAllocator>> {
 		let elem = self.elems.pop_front()?;
 		if let BufferElem::Vector(mut vector) = elem {
 			let new_len = u32::min(

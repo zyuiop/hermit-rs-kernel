@@ -25,7 +25,7 @@ use super::{
 };
 use crate::arch::memory_barrier;
 use crate::arch::mm::paging;
-use crate::mm::device_alloc::DeviceAlloc;
+use crate::mm::DeviceAllocator;
 
 struct DescrRing {
 	read_idx: u16,
@@ -38,9 +38,9 @@ struct DescrRing {
 	///
 	/// These tables may only be accessed via volatile operations.
 	/// See the corresponding method for a safe wrapper.
-	descr_table_cell: Box<UnsafeCell<[MaybeUninit<virtq::Desc>]>, DeviceAlloc>,
-	avail_ring_cell: Box<UnsafeCell<virtq::Avail>, DeviceAlloc>,
-	used_ring_cell: Box<UnsafeCell<virtq::Used>, DeviceAlloc>,
+	descr_table_cell: Box<UnsafeCell<[MaybeUninit<virtq::Desc>]>, DeviceAllocator>,
+	avail_ring_cell: Box<UnsafeCell<virtq::Avail>, DeviceAllocator>,
+	used_ring_cell: Box<UnsafeCell<virtq::Used>, DeviceAllocator>,
 }
 
 impl DescrRing {
@@ -232,31 +232,31 @@ impl Virtq for SplitVq {
 
 		let descr_table_cell = unsafe {
 			core::mem::transmute::<
-				Box<[MaybeUninit<virtq::Desc>], DeviceAlloc>,
-				Box<UnsafeCell<[MaybeUninit<virtq::Desc>]>, DeviceAlloc>,
-			>(Box::new_uninit_slice_in(size.into(), DeviceAlloc))
+				Box<[MaybeUninit<virtq::Desc>], DeviceAllocator>,
+				Box<UnsafeCell<[MaybeUninit<virtq::Desc>]>, DeviceAllocator>,
+			>(Box::new_uninit_slice_in(size.into(), DeviceAllocator))
 		};
 
 		let avail_ring_cell = {
-			let avail = virtq::Avail::try_new_in(size, true, DeviceAlloc)
+			let avail = virtq::Avail::try_new_in(size, true, DeviceAllocator)
 				.map_err(|_| VirtqError::AllocationError)?;
 
 			unsafe {
 				mem::transmute::<
-					Box<virtq::Avail, DeviceAlloc>,
-					Box<UnsafeCell<virtq::Avail>, DeviceAlloc>,
+					Box<virtq::Avail, DeviceAllocator>,
+					Box<UnsafeCell<virtq::Avail>, DeviceAllocator>,
 				>(avail)
 			}
 		};
 
 		let used_ring_cell = {
-			let used = virtq::Used::try_new_in(size, true, DeviceAlloc)
+			let used = virtq::Used::try_new_in(size, true, DeviceAllocator)
 				.map_err(|_| VirtqError::AllocationError)?;
 
 			unsafe {
 				mem::transmute::<
-					Box<virtq::Used, DeviceAlloc>,
-					Box<UnsafeCell<virtq::Used>, DeviceAlloc>,
+					Box<virtq::Used, DeviceAllocator>,
+					Box<UnsafeCell<virtq::Used>, DeviceAllocator>,
 				>(used)
 			}
 		};

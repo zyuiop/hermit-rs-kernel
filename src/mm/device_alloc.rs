@@ -11,7 +11,7 @@ use crate::arch::mm::paging::{BasePageSize, PageSize};
 /// Allocations from this allocator always correspond to contiguous physical memory.
 /// 
 /// If memory encryption is available, pages allocated with this allocator will not be encrypted.
-pub struct DeviceAlloc;
+pub(crate) struct DeviceAlloc;
 
 unsafe impl Allocator for DeviceAlloc {
 	fn allocate(&self, layout: Layout) -> Result<NonNull<[u8]>, AllocError> {
