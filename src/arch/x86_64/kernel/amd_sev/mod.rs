@@ -23,15 +23,17 @@ pub mod instruction_parser;
 pub mod ioio_explicit;
 mod opcodes;
 pub(crate) mod paravirt_uart;
+pub mod decrypted_allocator;
 
 use core::ops::{Deref, DerefMut};
 use core::sync::atomic::{AtomicU8, AtomicBool, Ordering};
+use core::alloc::{Allocator, Layout};
 pub use ghcb_msr_protocol::ghcb_request_exit;
 use ghcb_msr_protocol::{GHCB_MSR, GhcbMsrRequest, GhcbMsrResponse};
 use ghcb_protocol::Ghcb;
 pub use handler::vmm_interrupt_exception;
-use memory_addresses::PhysAddr;
-
+use memory_addresses::{PhysAddr, VirtAddr};
+use crate::arch::kernel::amd_sev::decrypted_allocator::SharedPagesAllocator;
 use crate::env::kernel::amd_sev::handler::error_exit_codes;
 use crate::mm;
 
@@ -164,14 +166,14 @@ impl<'a> DerefMut for GhcbLock<'a> {
 
 impl AllocatedGhcb {
 	pub fn new() -> Self {
-		let virt_addr = mm::allocate(size_of::<Ghcb>(), true);
-		let backup_virt_addr = mm::allocate(size_of::<Ghcb>(), true);
-		let physical_address = mm::virtual_to_physical(virt_addr).unwrap();
+		let (ghcb_ptr, physical_address) = SharedPagesAllocator.allocate_with_physical(Layout::new::<Ghcb>()).expect("failed to allocate memory for GHCB");
+		let (backup_ghcb_ptr, _) = SharedPagesAllocator.allocate_with_physical(Layout::new::<Ghcb>()).expect("failed to allocate memory for GHCB backup");
+
 		Self {
 			physical_address: physical_address,
-			inner: virt_addr.as_mut_ptr(),
+			inner: ghcb_ptr.as_mut_ptr(),
 			instance_count: AtomicU8::new(0),
-			backup: backup_virt_addr.as_mut_ptr(),
+			backup: backup_ghcb_ptr.as_mut_ptr(),
 			backup_present: AtomicBool::new(false)
 		}
 	}
