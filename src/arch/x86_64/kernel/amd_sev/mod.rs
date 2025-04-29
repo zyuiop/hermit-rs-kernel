@@ -24,6 +24,7 @@ pub mod ioio_explicit;
 mod opcodes;
 pub(crate) mod paravirt_uart;
 pub mod decrypted_allocator;
+pub mod detection;
 
 use core::ops::{Deref, DerefMut};
 use core::sync::atomic::{AtomicU8, AtomicBool, Ordering};
@@ -36,6 +37,9 @@ use memory_addresses::{PhysAddr, VirtAddr};
 use crate::arch::kernel::amd_sev::decrypted_allocator::SharedPagesAllocator;
 use crate::env::kernel::amd_sev::handler::error_exit_codes;
 use crate::mm;
+
+pub use detection::init;
+pub use detection::sev_state;
 
 const MAX_GHCB_PROTOCOL_VERSION: u16 = 1;
 

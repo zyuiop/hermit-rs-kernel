@@ -144,7 +144,7 @@ pub fn args() -> Option<&'static str> {
 #[cfg(target_os = "none")]
 pub fn boot_processor_init() {
 	let sev = if cfg!(feature = "amd-sev") {
-		let sev = x86_64::structures::amd_sev::init();
+		let sev = amd_sev::init();
 		if sev.is_some_and(|sev| sev.sev_enabled) {
 			info!("Enabled AMD encrypted memory support! ({sev:?})");
 		};
