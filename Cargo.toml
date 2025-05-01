@@ -163,7 +163,7 @@ features = [
 free-list = { path = "../../free-list", features = ["x86_64"] }
 raw-cpuid = "11"
 uart_16550 = "0.3"
-x86_64 = { path = "../../x86_64", features = ["amd_sev", "dynamic_flags"] }
+x86_64 = { path = "../../x86_64", features = ["memory_encryption"] }
 memory_addresses = { path = "../../memory-addresses", default-features = false, features = [
   "x86_64",
   "conv-x86_64",

@@ -1,6 +1,7 @@
 use bit_field::BitField;
 use hermit_sync::OnceCell;
 use x86_64::registers::model_specific::Msr;
+use x86_64::structures::mem_encrypt::MemoryEncryptionConfiguration;
 
 const MSR_AMD_SEV: Msr = Msr::new(0xc0010131);
 
@@ -55,8 +56,10 @@ pub fn init<'a>() -> Option<&'a SevState> {
         return None;
     }
 
-    let c_bit_pos: u64 = sme_features.ebx.get_bits(0..=5) as u64;
-    x86_64::structures::mem_encrypt::define_encryption_bit(c_bit_pos);
+    let c_bit_pos: u8 = sme_features.ebx.get_bits(0..=5) as u8;
+    unsafe {
+        x86_64::structures::mem_encrypt::enable_memory_encryption(MemoryEncryptionConfiguration::EncryptedBit(c_bit_pos));
+    }
     let c_bit_mask = (1u64) << c_bit_pos;
 
     // Check the MSR to see if SME is currently enabled
