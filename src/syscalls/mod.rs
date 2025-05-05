@@ -3,7 +3,7 @@
 use alloc::ffi::CString;
 #[cfg(all(target_os = "none", not(feature = "common-os")))]
 use core::alloc::{GlobalAlloc, Layout};
-use core::ffi::{CStr, c_char};
+use core::ffi::{CStr, c_char, c_ulong};
 use core::marker::PhantomData;
 use core::mem::MaybeUninit;
 use core::{ptr, slice};
@@ -25,8 +25,8 @@ pub use self::timer::*;
 use crate::errno::{Errno, ToErrno};
 use crate::executor::block_on;
 use crate::fd::{
-	self, AccessOption, AccessPermission, EventFlags, ObjectInterface, OpenOption, PollFd, RawFd,
-	dup_object, dup_object2, get_object, isatty, remove_object,
+	self, AccessOption, AccessPermission, EventFlags, IoCtlCall, ObjectInterface, OpenOption,
+	PollFd, RawFd, dup_object, dup_object2, get_object, isatty, remove_object,
 };
 use crate::fs::{self, FileAttr, SeekWhence};
 #[cfg(all(target_os = "none", not(feature = "common-os")))]
@@ -656,31 +656,23 @@ pub unsafe extern "C" fn sys_writev(fd: RawFd, iov: *const iovec, iovcnt: usize)
 
 #[hermit_macro::system(errno)]
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn sys_ioctl(fd: RawFd, cmd: i32, argp: *mut core::ffi::c_void) -> i32 {
-	const FIONBIO: i32 = 0x8008_667eu32 as i32;
+pub unsafe extern "C" fn sys_ioctl(fd: RawFd, cmd: c_ulong, argp: *mut core::ffi::c_void) -> i32 {
+	let Ok(cmd) = u32::try_from(cmd) else {
+		return -i32::from(Errno::Inval);
+	};
+	let cmd = IoCtlCall::from_bits(cmd);
 
-	if cmd == FIONBIO {
-		let value = unsafe { *(argp as *const i32) };
-		let status_flags = if value != 0 {
-			fd::StatusFlags::O_NONBLOCK
-		} else {
-			fd::StatusFlags::empty()
-		};
-
-		let obj = get_object(fd);
-		obj.map_or_else(
-			|e| -i32::from(e),
-			|v| {
-				block_on(
-					async { v.write().await.set_status_flags(status_flags).await },
-					None,
-				)
-				.map_or_else(|e| -i32::from(e), |()| 0)
-			},
-		)
-	} else {
-		-i32::from(Errno::Inval)
-	}
+	let obj = get_object(fd);
+	obj.map_or_else(
+		|e| -i32::from(e),
+		|v| {
+			block_on(
+				async { v.write().await.handle_ioctl(cmd, argp).await },
+				None,
+			)
+			.map_or_else(|e| -i32::from(e), |()| 0)
+		},
+	)
 }
 
 /// Manipulate file descriptor

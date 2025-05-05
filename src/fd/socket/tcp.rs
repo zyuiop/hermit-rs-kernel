@@ -1,6 +1,6 @@
 use alloc::collections::BTreeSet;
 use alloc::sync::Arc;
-use core::ffi::c_int;
+use core::ffi::{c_int, c_void};
 use core::future;
 use core::sync::atomic::{AtomicU16, Ordering};
 use core::task::Poll;
@@ -15,7 +15,9 @@ use crate::config::DEFAULT_KEEP_ALIVE_INTERVAL;
 use crate::errno::Errno;
 use crate::executor::block_on;
 use crate::executor::network::{Handle, NIC, wake_network_waker};
-use crate::fd::{self, Endpoint, Fd, ListenEndpoint, ObjectInterface, PollEvent, SocketOption};
+use crate::fd::{
+	self, Endpoint, Fd, IoCtlCall, ListenEndpoint, ObjectInterface, PollEvent, SocketOption,
+};
 use crate::io;
 use crate::syscalls::socket::Af;
 
@@ -456,6 +458,10 @@ impl ObjectInterface for Socket {
 	async fn set_status_flags(&mut self, status_flags: fd::StatusFlags) -> io::Result<()> {
 		self.is_nonblocking = status_flags.contains(fd::StatusFlags::O_NONBLOCK);
 		Ok(())
+	}
+
+	async fn handle_ioctl(&mut self, cmd: IoCtlCall, argp: *mut c_void) -> io::Result<()> {
+		crate::socket_handle_ioctl!(self, cmd, argp)
 	}
 }
 
