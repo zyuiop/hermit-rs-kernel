@@ -1,5 +1,6 @@
 #[cfg(feature = "virtio-fs")]
 pub(crate) mod fuse;
+pub mod ioctl;
 mod mem;
 mod uhyve;
 

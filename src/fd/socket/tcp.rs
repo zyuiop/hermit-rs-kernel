@@ -4,7 +4,7 @@ use alloc::sync::Arc;
 use core::future;
 use core::sync::atomic::{AtomicU16, Ordering};
 use core::task::Poll;
-
+use core::ffi::c_void;
 use async_trait::async_trait;
 use smoltcp::iface;
 use smoltcp::socket::tcp;
@@ -17,6 +17,7 @@ use crate::executor::network::{Handle, NIC};
 use crate::fd::{self, Endpoint, ListenEndpoint, ObjectInterface, PollEvent, SocketOption};
 use crate::syscalls::socket::Af;
 use crate::{DEFAULT_KEEP_ALIVE_INTERVAL, io};
+use crate::fs::ioctl::IoCtlCall;
 
 /// further receives will be disallowed
 pub const SHUT_RD: i32 = 0;
@@ -464,6 +465,10 @@ impl ObjectInterface for Socket {
 	async fn set_status_flags(&mut self, status_flags: fd::StatusFlags) -> io::Result<()> {
 		self.is_nonblocking = status_flags.contains(fd::StatusFlags::O_NONBLOCK);
 		Ok(())
+	}
+
+	fn handle_ioctl(&mut self, cmd: IoCtlCall, argp: *mut c_void) -> io::Result<()> {
+		super::socket_handle_ioctl(self, cmd, argp)
 	}
 }
 
