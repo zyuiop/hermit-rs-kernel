@@ -3,6 +3,7 @@ pub(crate) mod mem;
 pub(crate) mod uhyve;
 #[cfg(feature = "virtio-fs")]
 pub(crate) mod virtio_fs;
+pub mod ioctl;
 
 use alloc::borrow::ToOwned;
 #[cfg(any(feature = "uhyve", feature = "virtio-fs"))]
