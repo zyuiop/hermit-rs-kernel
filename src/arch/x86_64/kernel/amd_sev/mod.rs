@@ -218,8 +218,25 @@ const GHCB_SCRATCH_OFFSET: u64 = core::mem::offset_of!(Ghcb, shared_buffer) as u
 
 #[allow(static_mut_refs)]
 pub fn init_ghcb() {
+	let Some(sev_status) = sev_state() else { panic!("sev is not initialized") };
+
 	let ghcb_version = ghcb_negotiate_protocol();
 	let mut allocated = AllocatedGhcb::new();
+
+	if sev_status.snp_enabled {
+		let req = GhcbMsrRequest::RegisterGhcbGPA(x86_64::addr::PhysAddr::new(allocated.physical_address.as_u64()));
+		unsafe {
+			let resp = GHCB_MSR.send_request_restore(req);
+
+			let GhcbMsrResponse::RegisterGhcbGPA(rep) = resp else {
+				sev_exit!(error_exit_codes::EXIT_OTHER, "invalid GHCB MSR response code")
+			};
+
+			if rep.is_none() {
+				sev_exit!(error_exit_codes::EXIT_OTHER, "hypervisor rejected our GHCB address")
+			}
+		}
+	}
 
 	allocated.lock().deref_mut().protocol_version = ghcb_version;
 

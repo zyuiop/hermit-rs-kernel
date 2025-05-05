@@ -14,7 +14,9 @@ pub enum GhcbMsrRequest {
     RequestTermination {
         source: u8,
         reason: u8
-    }
+    },
+    PreferredGhcbGPA,
+    RegisterGhcbGPA(PhysAddr),
 }
 
 impl Into<u64> for GhcbMsrRequest {
@@ -28,6 +30,9 @@ impl Into<u64> for GhcbMsrRequest {
                 0x002,
             GhcbMsrRequest::RequestTermination { source, reason } =>
                 0x100u64 | (source as u64 & 0xf) << 12 | (reason as u64) << 16,
+            GhcbMsrRequest::PreferredGhcbGPA => 0x010,
+            GhcbMsrRequest::RegisterGhcbGPA(addr) =>
+                0x012 | (addr.as_u64() & 0xffff_ffff_ffff_f000)
         }
     }
 }
@@ -40,7 +45,9 @@ pub enum GhcbMsrResponse {
         c_bit_pos: u8,
     },
     GhcbPhysicalAddress(PhysAddr),
-    UnknownResponse(u64)
+    UnknownResponse(u64),
+    PreferredGhcbGPA(Option<PhysAddr>),
+    RegisterGhcbGPA(Option<PhysAddr>),
 }
 
 impl From<u64> for GhcbMsrResponse {
@@ -58,6 +65,14 @@ impl From<u64> for GhcbMsrResponse {
                     c_bit_pos, max_proto, min_proto
                 }
             }
+            0x011 => GhcbMsrResponse::PreferredGhcbGPA(
+                if value & 0xffff_ffff_ffff_f000 == 0xffff_ffff_ffff_f000 { None }
+                else { Some(PhysAddr::new(value & 0xffff_ffff_ffff_f000)) }
+            ),
+            0x013 => GhcbMsrResponse::RegisterGhcbGPA(
+                if value & 0xffff_ffff_ffff_f000 == 0xffff_ffff_ffff_f000 { None }
+                else { Some(PhysAddr::new(value & 0xffff_ffff_ffff_f000)) }
+            ),
             _ => GhcbMsrResponse::UnknownResponse(value)
         }
     }
