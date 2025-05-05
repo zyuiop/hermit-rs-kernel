@@ -5,7 +5,7 @@ use core::future;
 use core::mem::MaybeUninit;
 use core::sync::atomic::{AtomicU16, Ordering};
 use core::task::Poll;
-
+use core::ffi::c_void;
 use async_trait::async_trait;
 use smoltcp::iface;
 use smoltcp::socket::tcp;
@@ -528,5 +528,9 @@ impl ObjectInterface for async_lock::RwLock<Socket> {
 	async fn inet_domain(&self) -> io::Result<i32> {
 		let domain = self.read().await.domain;
 		Ok(domain)
+	}
+
+	fn handle_ioctl(&self, cmd: crate::fs::ioctl::IoCtlCall, argp: *mut c_void) -> io::Result<()> {
+		super::socket_handle_ioctl(self, cmd, argp)
 	}
 }

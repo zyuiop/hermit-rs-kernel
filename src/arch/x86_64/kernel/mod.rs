@@ -166,6 +166,7 @@ pub fn boot_processor_init() {
 	info!("init mm...");
 	crate::mm::init();
 	crate::mm::print_information();
+	crate::fs::ioctl::init();
 
 	CoreLocal::get().add_irq_counter();
 	env::init();
@@ -176,7 +177,8 @@ pub fn boot_processor_init() {
 	info!("Interrupts installed!");
 
 	if sev.is_some_and(|sev| sev.sev_es_enabled) {
-		init_ghcb();
+		amd_sev::init_ghcb();
+		amd_sev::init_ioctl();
 	}
 
 	pic::init(); // init PIC after interrupts have been installed (VC handler for AMD SEV)

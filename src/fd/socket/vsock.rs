@@ -4,7 +4,7 @@ use alloc::vec::Vec;
 use core::future;
 use core::mem::MaybeUninit;
 use core::task::Poll;
-
+use core::ffi::c_void;
 use async_trait::async_trait;
 use virtio::vsock::{Hdr, Op, Type};
 use virtio::{le16, le32, le64};
@@ -467,5 +467,9 @@ impl ObjectInterface for async_lock::RwLock<Socket> {
 
 	async fn set_status_flags(&self, status_flags: fd::StatusFlags) -> io::Result<()> {
 		self.write().await.set_status_flags(status_flags).await
+	}
+
+	fn handle_ioctl(&self, cmd: crate::fs::ioctl::IoCtlCall, argp: *mut c_void) -> io::Result<()> {
+		super::socket_handle_ioctl(self, cmd, argp)
 	}
 }

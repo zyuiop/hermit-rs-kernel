@@ -2,10 +2,9 @@
 
 #[cfg(all(target_os = "none", not(feature = "common-os")))]
 use core::alloc::{GlobalAlloc, Layout};
-use core::ffi::{CStr, c_char};
+use core::ffi::{CStr, c_char, c_ulong};
 use core::marker::PhantomData;
 use core::ptr;
-
 use hermit_sync::Lazy;
 
 pub use self::condvar::*;
@@ -20,15 +19,13 @@ pub use self::system::*;
 pub use self::tasks::*;
 pub use self::timer::*;
 use crate::executor::block_on;
-use crate::fd::{
-	self, AccessPermission, EventFlags, FileDescriptor, OpenOption, PollFd, dup_object,
-	dup_object2, get_object, isatty, remove_object,
-};
-use crate::fs::{self, FileAttr};
+use crate::fd::{self, AccessPermission, EventFlags, FileDescriptor, OpenOption, PollFd, dup_object, dup_object2, get_object, isatty, remove_object, insert_object};
+use crate::fs::{self, ioctl, FileAttr};
 #[cfg(all(target_os = "none", not(feature = "common-os")))]
 use crate::mm::ALLOCATOR;
 use crate::syscalls::interfaces::SyscallInterface;
 use crate::{env, io};
+use crate::fs::ioctl::{IoCtlCall, IOCTL_REGISTRY};
 
 mod condvar;
 mod entropy;
@@ -339,8 +336,12 @@ pub unsafe extern "C" fn sys_open(name: *const c_char, flags: i32, mode: u32) ->
 	};
 
 	if let Ok(name) = unsafe { CStr::from_ptr(name) }.to_str() {
-		crate::fs::open(name, flags, mode)
-			.unwrap_or_else(|e| -num::ToPrimitive::to_i32(&e).unwrap())
+		if let Ok(fd) = ioctl::open(name, flags, mode) {
+			fd
+		} else {
+			crate::fs::open(name, flags, mode)
+				.unwrap_or_else(|e| -num::ToPrimitive::to_i32(&e).unwrap())
+		}
 	} else {
 		-crate::errno::EINVAL
 	}
@@ -477,30 +478,17 @@ pub unsafe extern "C" fn sys_writev(fd: FileDescriptor, iov: *const iovec, iovcn
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn sys_ioctl(
 	fd: FileDescriptor,
-	cmd: i32,
+	cmd: c_ulong,
 	argp: *mut core::ffi::c_void,
 ) -> i32 {
-	const FIONBIO: i32 = 0x8008_667eu32 as i32;
-
-	if cmd == FIONBIO {
-		let value = unsafe { *(argp as *const i32) };
-		let status_flags = if value != 0 {
-			fd::StatusFlags::O_NONBLOCK
-		} else {
-			fd::StatusFlags::empty()
-		};
-
-		let obj = get_object(fd);
-		obj.map_or_else(
-			|e| -num::ToPrimitive::to_i32(&e).unwrap(),
-			|v| {
-				block_on((*v).set_status_flags(status_flags), None)
-					.map_or_else(|e| -num::ToPrimitive::to_i32(&e).unwrap(), |()| 0)
-			},
-		)
-	} else {
-		-crate::errno::EINVAL
-	}
+	let obj = get_object(fd);
+	obj.map_or_else(
+		|e| -num::ToPrimitive::to_i32(&e).unwrap(),
+		|v| {
+			(*v).handle_ioctl(IoCtlCall(cmd as u32), argp)
+				.map_or_else(|e| -num::ToPrimitive::to_i32(&e).unwrap(), |()| 0)
+		},
+	)
 }
 
 /// manipulate file descriptor

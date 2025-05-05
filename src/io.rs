@@ -23,6 +23,7 @@ pub enum Error {
 	EADDRINUSE = crate::errno::EADDRINUSE as isize,
 	EOVERFLOW = crate::errno::EOVERFLOW as isize,
 	ENOTSOCK = crate::errno::ENOTSOCK as isize,
+	EBUSY = crate::errno::EBUSY as isize,
 }
 
 pub type Result<T> = result::Result<T, Error>;

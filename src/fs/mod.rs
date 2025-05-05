@@ -2,6 +2,7 @@
 pub(crate) mod fuse;
 mod mem;
 mod uhyve;
+pub mod ioctl;
 
 use alloc::boxed::Box;
 use alloc::string::{String, ToString};
@@ -392,7 +393,7 @@ pub fn open(name: &str, flags: OpenOption, mode: AccessPermission) -> io::Result
 	// (taken from rust stdlib/sys hermit target )
 
 	debug!("Open {name}, {flags:?}, {mode:?}");
-
+	
 	let fs = FILESYSTEM.get().ok_or(io::Error::EINVAL)?;
 	if let Ok(file) = fs.open(name, flags, mode) {
 		let fd = insert_object(file)?;
@@ -409,6 +410,7 @@ pub(crate) fn opendir(name: &str) -> io::Result<FileDescriptor> {
 }
 
 use crate::fd::{self, FileDescriptor};
+use crate::fs::ioctl::{IoCtlRegistry, IOCTL_REGISTRY};
 
 pub fn file_attributes(path: &str) -> io::Result<FileAttr> {
 	FILESYSTEM.get().ok_or(io::Error::EINVAL)?.lstat(path)

@@ -25,6 +25,7 @@ mod opcodes;
 pub(crate) mod paravirt_uart;
 pub mod decrypted_allocator;
 pub mod detection;
+pub(crate) mod sev_guest_ioctl;
 
 use core::ops::{Deref, DerefMut};
 use core::sync::atomic::{AtomicU8, AtomicBool, Ordering};
@@ -40,6 +41,7 @@ use crate::mm;
 
 pub use detection::init;
 pub use detection::sev_state;
+use crate::fs::ioctl::IOCTL_REGISTRY;
 
 const MAX_GHCB_PROTOCOL_VERSION: u16 = 1;
 
@@ -245,4 +247,9 @@ pub fn init_ghcb() {
 			panic!("GHCB is already initialized!");
 		}
 	}
+}
+
+pub fn init_ioctl() {
+	let reg = IOCTL_REGISTRY.get().expect("could not get IOCTL registry");
+	reg.register("/dev/sev-guest", sev_guest_ioctl::SEV_GUEST_IOCTL.deref())
 }
