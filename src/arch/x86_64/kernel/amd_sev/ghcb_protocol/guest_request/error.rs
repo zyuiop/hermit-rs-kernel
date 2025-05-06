@@ -4,6 +4,7 @@ use crate::arch::kernel::amd_sev::ghcb_protocol::GhcbProtocolError;
 #[derive(Debug)]
 pub enum GuestProtocolError {
     GhcbProtocolError(GhcbProtocolError),
+    CryptoError,
     FirmwareError {
         hv_error: u32,
         fw_error: GuestProtocolStatusCode,

@@ -94,7 +94,7 @@ pub fn get_key(no: CommunicationKeyNumber) -> VMCommunicationKey {
 pub fn get_sequence_number(no: CommunicationKeyNumber) -> u32 {
 	let guard = SECRETS_PAGE.lock();
 	let page = guard.as_ref().expect("could not lock secrets page");
-
+	
 	page.guest_area.msg_seqno[no.to_usize().unwrap()]
 }
 

@@ -52,8 +52,7 @@ pub struct AttestationResponse {
     status: u32,
     report_size: u32,
     _reserved: [u8; 24],
-    report: [u8; REPORT_SIZE],
-    _padding: [u8; 4000 - REPORT_SIZE - 24 - 8],
+    report: [u8; REPORT_SIZE]
 }
 
 impl TryFrom<Vec<u8>> for AttestationResponse {

@@ -67,10 +67,10 @@ struct RequestPageHeader {
     /// Authentication tag for this message
     pub authentication_tag: [u8; 0x20], // 32 bytes authentication tag
 
-    _reserved1: u64,
-
     /// Message sequence number. Used to construct the IV.
     pub seqno: u64,
+
+    _reserved1: u64,
 
     /// Algorithm to use to encrypt the message
     pub algo: AeadAlgorithm,
@@ -120,7 +120,7 @@ impl RequestPageHeader {
             header_version: HeaderVersion::Version1,
             header_size: size_of::<RequestPageHeader>() as u16,
             message_type,
-            message_version: 0,
+            message_version: 1,
             payload_size,
             _reserved2: 0,
             vmkey: vmkey.to_u8().unwrap(),
@@ -305,7 +305,7 @@ fn write_request_raw(req_page: &mut InterruptSpinMutexGuard<SNPSharedPage>, mess
     req_page.payload_mut().clone_from_slice(payload);
 }
 
-fn read_response_raw(rep_page: &InterruptSpinMutexGuard<SNPSharedPage>) -> Vec<u8> {
+fn read_response_raw(rep_page: &InterruptSpinMutexGuard<SNPSharedPage>) -> Result<Vec<u8>, GuestProtocolError> {
     // Verify header
     let header = rep_page.header();
 
@@ -314,6 +314,7 @@ fn read_response_raw(rep_page: &InterruptSpinMutexGuard<SNPSharedPage>) -> Vec<u
     assert_eq!(header.header_size, size_of::<RequestPageHeader>() as u16);
 
     let key_used = CommunicationKeyNumber::from_u8(header.vmkey).expect("invalid VMKey number");
+    increase_sequence_number(key_used);
     let seqno = get_sequence_number(key_used);
 
     assert_eq!(header.seqno, seqno as u64);
@@ -321,13 +322,13 @@ fn read_response_raw(rep_page: &InterruptSpinMutexGuard<SNPSharedPage>) -> Vec<u
     // Decrypt payload
     let payload = rep_page.payload();
     let key = get_key(key_used);
+    let tag: &Tag = Tag::from_slice(&header.authentication_tag[0..16]);
     let mut aes = Aes256Gcm::new(&key);
-    let decrypted = aes.decrypt(&header.nonce(), Payload {
-        aad: header.associated_data(),
-        msg: payload,
-    }).expect("AEAD encryption failure");
+    let mut decrypted = Vec::from(payload);
+    aes.decrypt_in_place_detached(&header.nonce(), header.associated_data(), &mut decrypted, tag)
+        .map_err(|_| GuestProtocolError::CryptoError)?;
 
-    decrypted
+    Ok(decrypted)
 }
 
 fn send_request_raw(ghcb: &mut Ghcb, request_type: MessageType, request: Vec<u8>) -> Result<Vec<u8>, GuestProtocolError>{
@@ -337,7 +338,8 @@ fn send_request_raw(ghcb: &mut Ghcb, request_type: MessageType, request: Vec<u8>
     write_request_raw(&mut req_page, request_type, request);
 
     // Write and send the request
-    let resp_page = (&*RESPONSE_PAGE).lock();
+    let mut resp_page = (&*RESPONSE_PAGE).lock();
+    resp_page.clear();
     checked_vmgexit(ghcb, GhcbExitCode::SnpGuestRequest, req_page.1.as_u64(), resp_page.1.as_u64())?;
     drop(req_page);
 
@@ -345,22 +347,8 @@ fn send_request_raw(ghcb: &mut Ghcb, request_type: MessageType, request: Vec<u8>
         Err(GuestProtocolError::from_fw_error(ghcb.save.sw_exit_info_2))
     } else {
         // Read the response
-        Ok(read_response_raw(&resp_page))
+        read_response_raw(&resp_page)
     }
-}
-
-unsafe fn guest_request_exit(ghcb: &mut Ghcb, req_page: PhysAddr, rep_page: PhysAddr) -> Result<(), GuestProtocolError> {
-    ghcb.save.sw_exit_code = GhcbExitCode::SnpGuestRequest;
-    ghcb.save.sw_exit_info_1 = req_page.as_u64();
-    ghcb.save.sw_exit_info_2 = rep_page.as_u64();
-
-    ghcb.save.set_valid_field(& ghcb.save.sw_exit_code);
-    ghcb.save.set_valid_field(& ghcb.save.sw_exit_info_1);
-    ghcb.save.set_valid_field(& ghcb.save.sw_exit_info_2);
-
-    unsafe { vmgexit(); }
-
-    Ok(())
 }
 
 fn send_request_typed<R: SNPGuestRequest>(ghcb: &mut Ghcb, request: R) -> Result<R::ResponseType, GuestProtocolError> {
