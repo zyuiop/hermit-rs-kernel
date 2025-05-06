@@ -46,45 +46,51 @@ pub struct OSSecretsArea {
 	guest_usage: [u8; 20],
 }
 
-pub(crate) static CCBLOB: OnceCell<&SNPCCBlob> = OnceCell::new();
-pub(crate) static SECRETSPAGE: SpinMutex<Option<&mut SNPSecretsPage>> = SpinMutex::new(None); //TODO: volatile crate von Martin hier nutzen, dann kann ich die keys readonly setzen
+pub(crate) static CC_BLOB: OnceCell<&SNPCCBlob> = OnceCell::new();
+pub(crate) static SECRETS_PAGE: SpinMutex<Option<&mut SNPSecretsPage>> = SpinMutex::new(None); //TODO: volatile crate von Martin hier nutzen, dann kann ich die keys readonly setzen
 
 pub fn init() {
-	CCBLOB.set(detect_cc_blob().unwrap()).unwrap();
-	let mut guard = SECRETSPAGE.lock();
-	let mut secrets_page: *mut u64 = CCBLOB.get().unwrap().secrets_page_pa as *mut u64;
+	let Some(cc_blob) = detect_cc_blob() else {
+		error!("No CC blob found: SNP specific features will be unavailable. Are you sure you are using a compatible bootloader ?");
+		return;
+	};
+
+	if let Err(_) = CC_BLOB.set(cc_blob) {
+		warn!("CC blob already initialized");
+	}
+
+	let mut guard = SECRETS_PAGE.lock();
+	let secrets_page: *mut u64 = CC_BLOB.get().unwrap().secrets_page_pa as *mut u64;
 	let secrets_ptr = unsafe { secrets_page.cast::<SNPSecretsPage>().as_mut() };
 	*guard = secrets_ptr;
 }
 
-fn detect_cc_blob() -> Result<&'static SNPCCBlob, ()> {
-	if let Some(cc_blob) = env::cc_blob() {
-		debug!("EFI CC Blob detected at {cc_blob:#x}");
-		let cc_blob = unsafe {
+fn detect_cc_blob() -> Option<&'static SNPCCBlob> {
+	env::cc_blob().map(|cc_blob| {
+		info!("AMD-SEV: EFI CC Blob detected at {cc_blob:#x}");
+
+		unsafe {
 			ptr::with_exposed_provenance::<SNPCCBlob>(cc_blob.get())
 				.as_ref()
 				.unwrap()
-		};
-		trace!("{cc_blob:#x?}");
-		return Ok(cc_blob);
-	}
-	Err(())
+		}
+	})
 }
 
 pub fn get_vmpck0() -> [u8; 32] {
-	let mut guard = SECRETSPAGE.lock();
+	let mut guard = SECRETS_PAGE.lock();
 	let secrets_page = guard.as_mut().unwrap();
 	secrets_page.vmpck0
 }
 
 pub fn get_msgseqno0() -> u64 {
-	let mut guard = SECRETSPAGE.lock();
+	let mut guard = SECRETS_PAGE.lock();
 	let mut secrets_page = guard.as_mut().unwrap();
 	secrets_page.guest_area.msg_seqno0 as u64
 }
 
 pub fn inc_msgseqno0() {
-	let mut guard = SECRETSPAGE.lock();
+	let mut guard = SECRETS_PAGE.lock();
 	let mut secrets_page = guard.as_mut().unwrap();
 	secrets_page.guest_area.msg_seqno0 = secrets_page.guest_area.msg_seqno0.checked_add(1).unwrap();
 }

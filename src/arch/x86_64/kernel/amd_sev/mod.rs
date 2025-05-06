@@ -109,6 +109,9 @@ pub fn enable_sev<'a>() -> Option<&'a SevState> {
 /// descriptor table is set
 pub fn post_init() {
 	ghcb_protocol::allocated_ghcb::init_ghcb();
-	sev_guest_ioctl::init();
-	secrets::init();
+
+	if sev_state().unwrap().snp_enabled {
+		sev_guest_ioctl::init();
+		secrets::init();
+	}
 }
