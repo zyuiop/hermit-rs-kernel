@@ -3,11 +3,12 @@ use aes_gcm::aes::Aes256;
 use aes_gcm::Key;
 use hermit_sync::{OnceCell, SpinMutex};
 use num_traits::ToPrimitive;
+use crate::arch::kernel::amd_sev::secrets::CommunicationKeyNumber::{VmPck0, VmPck1, VmPck2, VmPck3};
 use crate::env;
 
 pub type VMCommunicationKey = Key<Aes256>;
 
-#[derive(Copy, Clone, Debug, ToPrimitive)]
+#[derive(Copy, Clone, Debug, ToPrimitive, FromPrimitive)]
 #[repr(usize)]
 pub enum CommunicationKeyNumber {
 	VmPck0 = 0,
@@ -104,3 +105,18 @@ pub fn increase_sequence_number(no: CommunicationKeyNumber) {
 	page.guest_area.msg_seqno[no.to_usize().unwrap()] += 1;
 }
 
+pub fn get_next_available_key() -> Option<(CommunicationKeyNumber, VMCommunicationKey, u32)> {
+	let guard = SECRETS_PAGE.lock();
+	let page = guard.as_ref().expect("could not lock secrets page");
+
+	for key_no in [VmPck0, VmPck1, VmPck2, VmPck3] {
+		let seqno = page.guest_area.msg_seqno[key_no.to_usize().unwrap()];
+
+		if seqno < u32::MAX - 1 {
+			let key = page.vmpck[key_no.to_usize().unwrap()];
+			return Some((key_no, key, seqno))
+		}
+	}
+
+	None
+}

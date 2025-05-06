@@ -6,7 +6,7 @@ pub mod protocol_ap_reset;
 pub mod protocol_vmmcall;
 pub mod ghcb_msr;
 pub mod allocated_ghcb;
-mod protocol_guest_request;
+pub mod guest_request;
 mod protocol_page_state_change;
 
 use ghcb::Ghcb;
@@ -79,7 +79,10 @@ pub enum InvalidGhcbError {
 #[derive(Debug, Copy, Clone)]
 pub enum PostProcessingError {
     /// A field in the GHCB save area was supposed to be set but is not
-    MissingExpectedResponseField
+    MissingExpectedResponseField,
+
+    /// An error occurred while parsing the response data
+    ParseError
 }
 
 #[derive(Debug, Copy, Clone)]

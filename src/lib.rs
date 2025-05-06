@@ -50,7 +50,6 @@ extern crate num_derive;
 use core::hint::spin_loop;
 #[cfg(feature = "smp")]
 use core::sync::atomic::{AtomicU32, Ordering};
-
 use arch::core_local::*;
 
 pub(crate) use crate::arch::*;
