@@ -1,8 +1,20 @@
 use core::ptr;
-
+use aes_gcm::aes::Aes256;
+use aes_gcm::Key;
 use hermit_sync::{OnceCell, SpinMutex};
-
+use num_traits::ToPrimitive;
 use crate::env;
+
+pub type VMCommunicationKey = Key<Aes256>;
+
+#[derive(Copy, Clone, Debug, ToPrimitive)]
+#[repr(usize)]
+pub enum CommunicationKeyNumber {
+	VmPck0 = 0,
+	VmPck1 = 1,
+	VmPck2 = 2,
+	VmPck3 = 3,
+}
 
 #[derive(Debug)]
 #[repr(C)] //maybe align, finden wir später raus
@@ -12,10 +24,7 @@ pub struct SNPSecretsPage {
 	fms: u32, //Family, model, and stepping information as reported in CPUID Fn0000_0001_EAX.
 	reserved: u32,
 	gosvw: [u8; 16],
-	vmpck0: [u8; 32],
-	vmpck1: [u8; 32],
-	vmpck2: [u8; 32],
-	vmpck3: [u8; 32],
+	vmpck: [VMCommunicationKey; 4],
 	guest_area: OSSecretsArea,
 	reserved2: [u8; 3840],
 }
@@ -37,10 +46,7 @@ pub struct SNPCCBlob {
 #[derive(Debug)]
 #[repr(C)]
 pub struct OSSecretsArea {
-	msg_seqno0: u32,
-	msg_seqno1: u32,
-	msg_seqno2: u32,
-	msg_seqno3: u32,
+	msg_seqno: [u32; 4],
 	ap_jump_table_phys_addr: u64,
 	reserved: [u8; 40],
 	guest_usage: [u8; 20],
@@ -77,20 +83,24 @@ fn detect_cc_blob() -> Option<&'static SNPCCBlob> {
 	})
 }
 
-pub fn get_vmpck0() -> [u8; 32] {
-	let mut guard = SECRETS_PAGE.lock();
-	let secrets_page = guard.as_mut().unwrap();
-	secrets_page.vmpck0
+pub fn get_key(no: CommunicationKeyNumber) -> VMCommunicationKey {
+	let guard = SECRETS_PAGE.lock();
+	let page = guard.as_ref().expect("could not lock secrets page");
+
+	page.vmpck[no.to_usize().unwrap()]
 }
 
-pub fn get_msgseqno0() -> u64 {
-	let mut guard = SECRETS_PAGE.lock();
-	let mut secrets_page = guard.as_mut().unwrap();
-	secrets_page.guest_area.msg_seqno0 as u64
+pub fn get_sequence_number(no: CommunicationKeyNumber) -> u32 {
+	let guard = SECRETS_PAGE.lock();
+	let page = guard.as_ref().expect("could not lock secrets page");
+
+	page.guest_area.msg_seqno[no.to_usize().unwrap()]
 }
 
-pub fn inc_msgseqno0() {
+pub fn increase_sequence_number(no: CommunicationKeyNumber) {
 	let mut guard = SECRETS_PAGE.lock();
-	let mut secrets_page = guard.as_mut().unwrap();
-	secrets_page.guest_area.msg_seqno0 = secrets_page.guest_area.msg_seqno0.checked_add(1).unwrap();
+	let page = guard.as_mut().expect("could not lock secrets page");
+
+	page.guest_area.msg_seqno[no.to_usize().unwrap()] += 1;
 }
+
