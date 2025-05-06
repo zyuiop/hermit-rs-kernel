@@ -85,7 +85,6 @@ pub fn ghcb_request_exit(exit_code: u8) -> ! {
     });
 }
 
-
 pub unsafe fn vmgexit() {
     /*
     KVM Hypercalls have a three-byte sequence of either the vmcall or the vmmcall

@@ -808,7 +808,7 @@ pub fn boot_application_processors() {
 
 	if apic_ids.len() > 1 && amd_sev::sev_state().is_some_and(|sev| sev.sev_es_enabled) {
 		unsafe {
-			let table = amd_sev::handler_ap::ap_jump_table_get().unwrap();
+			let table = amd_sev::ghcb_protocol::protocol_ap_reset::ap_jump_table_get().unwrap();
 			let table = table.as_mut().unwrap();
 
 			table.set_addr(SMP_BOOT_CODE_ADDRESS.as_u64() as u32);

@@ -1,26 +1,22 @@
 macro_rules! sev_exit {
     ($code:expr) => {{
         log::error!();
-        crate::arch::x86_64::kernel::amd_sev::ghcb_msr_protocol::ghcb_request_exit($code)
+        crate::arch::x86_64::kernel::amd_sev::ghcb_protocol::ghcb_msr::ghcb_request_exit($code)
     }};
     ($code:expr, $($arg:tt)*) => {{
         log::error!($($arg)+);
-        crate::arch::x86_64::kernel::amd_sev::ghcb_msr_protocol::ghcb_request_exit($code)
+        crate::arch::x86_64::kernel::amd_sev::ghcb_protocol::ghcb_msr::ghcb_request_exit($code)
     }};
 }
 
 mod exitcodes;
-mod ghcb_msr_protocol;
-mod ghcb_protocol;
+pub(crate) mod ghcb_protocol;
 pub(crate) mod handler;
-pub mod handler_ap;
 mod handler_cpuid;
 pub mod handler_ioio;
 mod handler_mmio;
 mod handler_msr;
-mod handler_vmmcall;
 pub mod instruction_parser;
-pub mod ioio_explicit;
 mod opcodes;
 pub(crate) mod paravirt_uart;
 pub mod decrypted_allocator;
@@ -28,11 +24,10 @@ pub mod detection;
 pub(crate) mod sev_guest_ioctl;
 
 use core::ops::{Deref, DerefMut};
-use core::sync::atomic::{AtomicU8, AtomicBool, Ordering};
+use core::sync::atomic::{AtomicBool, AtomicU8, Ordering};
 use core::alloc::{Allocator, Layout};
-pub use ghcb_msr_protocol::ghcb_request_exit;
-use ghcb_msr_protocol::{GHCB_MSR, GhcbMsrRequest, GhcbMsrResponse};
-use ghcb_protocol::Ghcb;
+pub use ghcb_protocol::ghcb_msr::ghcb_request_exit;
+use ghcb_protocol::ghcb::Ghcb;
 pub use handler::vmm_interrupt_exception;
 use memory_addresses::{PhysAddr, VirtAddr};
 use crate::arch::kernel::amd_sev::decrypted_allocator::SharedPagesAllocator;
@@ -41,6 +36,7 @@ use crate::mm;
 
 pub use detection::init;
 pub use detection::sev_state;
+use ghcb_protocol::ghcb_msr::{GhcbMsrRequest, GhcbMsrResponse, GHCB_MSR};
 use crate::fs::ioctl::IOCTL_REGISTRY;
 
 const MAX_GHCB_PROTOCOL_VERSION: u16 = 1;

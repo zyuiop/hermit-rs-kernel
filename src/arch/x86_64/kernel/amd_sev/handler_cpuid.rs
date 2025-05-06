@@ -1,11 +1,12 @@
 use x86_64::registers::control::{Cr4, Cr4Flags};
 use x86_64::registers::xcontrol::XCr0;
 use super::ghcb_protocol::{
-	Ghcb, GhcbExitCode, GhcbProtocolError, checked_vmgexit,
+	checked_vmgexit, GhcbExitCode, GhcbProtocolError,
 };
 
 use crate::arch::kernel::amd_sev::handler::InterruptStackFrame;
 use crate::arch::kernel::amd_sev::instruction_parser::InstructionData;
+use crate::arch::x86_64::kernel::amd_sev::ghcb_protocol::ghcb::Ghcb;
 use crate::env::kernel::amd_sev::handler::{error_exit_codes, VcHandler};
 
 #[derive(Debug)]

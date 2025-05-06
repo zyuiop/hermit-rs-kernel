@@ -1,5 +1,5 @@
 use x86_64::instructions::interrupts::without_interrupts;
-use super::ghcb_protocol::{checked_vmgexit, GhcbExitCode, GhcbProtocolError};
+use super::{checked_vmgexit, GhcbExitCode, GhcbProtocolError};
 use crate::env::kernel::amd_sev::with_ghcb;
 
 #[repr(C)]

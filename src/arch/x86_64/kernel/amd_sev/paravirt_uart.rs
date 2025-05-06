@@ -3,7 +3,7 @@
 /// Copyright (c) 2019 Lachlan Sneff, Philipp Oppermann
 /// MIT license
 use core::fmt;
-use super::ioio_explicit::{inb, outb};
+use super::ghcb_protocol::protocol_ioio::{inb, outb};
 
 bitflags! {
 	/// Line status flags

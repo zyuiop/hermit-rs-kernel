@@ -1,11 +1,10 @@
 use x86_64::instructions::interrupts::without_interrupts;
-use super::ghcb_protocol::{checked_vmgexit, Ghcb, GhcbExitCode, GhcbProtocolError};
+use super::{checked_vmgexit, GhcbExitCode, GhcbProtocolError};
 use crate::arch::kernel::amd_sev::handler::{error_exit_codes, InterruptStackFrame};
 use crate::arch::kernel::amd_sev::instruction_parser::InstructionData;
+use crate::arch::x86_64::kernel::amd_sev::ghcb_protocol::ghcb::Ghcb;
 use crate::env::kernel::amd_sev::with_ghcb;
-use super::handler::VcHandler;
 
-pub struct VmmCallHandler;
 
 pub struct Hypercalls {
     pub map_gpa_range: Hypercall3Args
@@ -167,11 +166,5 @@ impl Hypercall4Args {
                 unsafe { self.send_raw_values(ghcb, arg1, arg2, arg3, arg4) }
             })
         })
-    }
-}
-
-impl VcHandler for VmmCallHandler {
-    fn handle(&self, frame: &mut InterruptStackFrame, ghcb: &mut Ghcb, instruction_data: &mut InstructionData) -> Result<(), GhcbProtocolError> {
-        todo!()
     }
 }
