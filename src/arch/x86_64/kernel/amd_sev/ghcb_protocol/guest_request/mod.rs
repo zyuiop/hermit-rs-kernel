@@ -1,4 +1,5 @@
 pub mod attestation_request;
+mod error;
 
 use super::protocol_page_state_change::{
     change_page_states, PageStateChangeEntry, PageStateChangeOperation,
@@ -21,6 +22,7 @@ use num_traits::{FromPrimitive, ToPrimitive};
 use x86_64::instructions::interrupts::without_interrupts;
 use x86_64::structures::paging::{PageSize, Size4KiB};
 use zerocopy::{FromBytes, Immutable, IntoBytes};
+use error::GuestProtocolError;
 use crate::arch::kernel::amd_sev::ghcb_protocol::ghcb_msr::vmgexit;
 
 type RequestPageMutex = InterruptSpinMutex<SNPSharedPage>;
@@ -148,6 +150,9 @@ impl RequestPageHeader {
 
 static REQUEST_PAGE: Lazy<RequestPageMutex> = Lazy::new(|| SNPSharedPage::allocate());
 static RESPONSE_PAGE: Lazy<RequestPageMutex> = Lazy::new(|| SNPSharedPage::allocate());
+/* static CRYPTO_BUFFER: Lazy<InterruptSpinMutex<Box<[u8; 0x1000]>>> = Lazy::new(|| {
+    InterruptSpinMutex::new(Box::new([0; 0x1000]))
+}); */
 
 struct SNPSharedPage(&'static mut SNPSharedPageInner, PhysAddr);
 
@@ -231,7 +236,7 @@ pub trait SNPGuestRequest: Sized + IntoBytes + Immutable {
 
     fn message_type() -> MessageType;
 
-    fn send(self) -> Result<Self::ResponseType, GhcbProtocolError> {
+    fn send(self) -> Result<Self::ResponseType, GuestProtocolError> {
         send_request(self)
     }
 }
@@ -244,7 +249,7 @@ pub struct RequestAttestation {
 	report_data: Option<[u8; 64]>,
 }
 
-pub fn send_request<R: SNPGuestRequest>(request: R) -> Result<R::ResponseType, GhcbProtocolError> {
+pub fn send_request<R: SNPGuestRequest>(request: R) -> Result<R::ResponseType, GuestProtocolError> {
     // Ensure pages are set before entering the GHCB mode
     Lazy::force(&REQUEST_PAGE);
     Lazy::force(&RESPONSE_PAGE);
@@ -256,7 +261,7 @@ pub fn send_request<R: SNPGuestRequest>(request: R) -> Result<R::ResponseType, G
     })
 }
 
-pub fn send_bin_request(request: Vec<u8>, code: MessageType) -> Result<Vec<u8>, GhcbProtocolError> {
+pub fn send_bin_request(request: Vec<u8>, code: MessageType) -> Result<Vec<u8>, GuestProtocolError> {
     // Ensure pages are set before entering the GHCB mode
     Lazy::force(&REQUEST_PAGE);
     Lazy::force(&RESPONSE_PAGE);
@@ -325,26 +330,26 @@ fn read_response_raw(rep_page: &InterruptSpinMutexGuard<SNPSharedPage>) -> Vec<u
     decrypted
 }
 
-fn send_request_raw(ghcb: &mut Ghcb, request_type: MessageType, request: Vec<u8>) -> Result<Vec<u8>, GhcbProtocolError>{
+fn send_request_raw(ghcb: &mut Ghcb, request_type: MessageType, request: Vec<u8>) -> Result<Vec<u8>, GuestProtocolError>{
     ghcb.clear();
     let mut req_page = (&*REQUEST_PAGE).lock();
 
     write_request_raw(&mut req_page, request_type, request);
 
     // Write and send the request
-    let resp_page = (&*REQUEST_PAGE).lock();
-    unsafe {
-        guest_request_exit(ghcb, req_page.1, resp_page.1)?;
-    }
+    let resp_page = (&*RESPONSE_PAGE).lock();
+    checked_vmgexit(ghcb, GhcbExitCode::SnpGuestRequest, req_page.1.as_u64(), resp_page.1.as_u64())?;
     drop(req_page);
 
-    panic!("debugging");
-
-    // Read the response
-    Ok(read_response_raw(&resp_page))
+    if ghcb.save.sw_exit_info_2 != 0 {
+        Err(GuestProtocolError::from_fw_error(ghcb.save.sw_exit_info_2))
+    } else {
+        // Read the response
+        Ok(read_response_raw(&resp_page))
+    }
 }
 
-unsafe fn guest_request_exit(ghcb: &mut Ghcb, req_page: PhysAddr, rep_page: PhysAddr) -> Result<(), GhcbProtocolError> {
+unsafe fn guest_request_exit(ghcb: &mut Ghcb, req_page: PhysAddr, rep_page: PhysAddr) -> Result<(), GuestProtocolError> {
     ghcb.save.sw_exit_code = GhcbExitCode::SnpGuestRequest;
     ghcb.save.sw_exit_info_1 = req_page.as_u64();
     ghcb.save.sw_exit_info_2 = rep_page.as_u64();
@@ -355,17 +360,15 @@ unsafe fn guest_request_exit(ghcb: &mut Ghcb, req_page: PhysAddr, rep_page: Phys
 
     unsafe { vmgexit(); }
 
-    panic!("vmgexit returned");
-
     Ok(())
 }
 
-fn send_request_typed<R: SNPGuestRequest>(ghcb: &mut Ghcb, request: R) -> Result<R::ResponseType, GhcbProtocolError> {
+fn send_request_typed<R: SNPGuestRequest>(ghcb: &mut Ghcb, request: R) -> Result<R::ResponseType, GuestProtocolError> {
     let decrypted = send_request_raw(ghcb, R::message_type(), Vec::from(request.as_bytes()))?;
 
     // Return result
     R::ResponseType::read_from_bytes(&decrypted)
-        .map_err(|_| GhcbProtocolError::PostProcessingError(
+        .map_err(|_| GuestProtocolError::GhcbProtocolError(GhcbProtocolError::PostProcessingError(
             PostProcessingError::ParseError
-        ))
+        )))
 }

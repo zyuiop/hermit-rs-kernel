@@ -25,8 +25,14 @@ pub struct AttestationRequest {
 }
 
 impl AttestationRequest {
-    pub fn new(report_data: Option<[u8; 0x40]>) {
-        Self { report_data: report_data.unwrap_or([0u8; 0x40]), vmpl: 0, _reserved: [0; 3], _reserved2: [0; 24], key_sel: KeySelection::VLEKIfAvailable };
+    pub fn new(report_data: Option<[u8; 0x40]>) -> Self {
+        Self {
+            report_data: report_data.unwrap_or([0u8; 0x40]),
+            vmpl: 0,
+            _reserved: [0; 3],
+            _reserved2: [0; 24],
+            key_sel: KeySelection::VLEKIfAvailable
+        }
     }
 }
 
