@@ -1,11 +1,17 @@
-use core::fmt::{Debug, Formatter};
+use core::fmt::{Debug};
 use alloc::sync::Arc;
 use core::ffi::c_void;
+use core::ops::Deref;
 use hermit_sync::Lazy;
 use crate::fd::{AccessPermission, ObjectInterface, OpenOption};
-use crate::fs::ioctl::CustomIoctl;
+use crate::fs::ioctl::{CustomIoctl, IOCTL_REGISTRY};
 
-pub static SEV_GUEST_IOCTL: Lazy<SevGuestIoCtlManager> = Lazy::new(|| SevGuestIoCtlManager::new());
+static SEV_GUEST_IOCTL: Lazy<SevGuestIoCtlManager> = Lazy::new(|| SevGuestIoCtlManager::new());
+
+pub fn init() {
+    let reg = IOCTL_REGISTRY.get().expect("could not get IOCTL registry");
+    reg.register("/dev/sev-guest", SEV_GUEST_IOCTL.deref())
+}
 
 pub struct SevGuestIoCtlManager {
     inner: Arc<SevGuestIoCtl>

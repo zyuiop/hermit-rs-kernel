@@ -1,10 +1,10 @@
 use x86_64::instructions::interrupts::without_interrupts;
-use crate::arch::kernel::amd_sev::handler::SavedRegisters;
+use crate::arch::kernel::amd_sev::vc_handler::SavedRegisters;
 use crate::arch::kernel::amd_sev::instruction_parser::{InstructionData, InstructionRepetitionMode, Size};
 use crate::arch::kernel::amd_sev::opcodes::io_opcode;
 use crate::arch::x86_64::kernel::amd_sev::ghcb_protocol::ghcb::Ghcb;
 use super::{checked_vmgexit, error_exit_codes, GhcbExitCode, GhcbProtocolError};
-use super::super::with_ghcb;
+use crate::arch::x86_64::kernel::amd_sev::ghcb_protocol::allocated_ghcb::with_ghcb;
 
 pub struct IoIoExplicitProtocolExit<'a> {
     io_port: u16,

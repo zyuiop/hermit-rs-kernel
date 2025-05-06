@@ -30,7 +30,7 @@ impl SerialPort {
 				buffer: VecDeque::new(),
 				waker: WakerRegistration::new(),
 			}
-		} else if amd_sev::init().is_some_and(|s| s.sev_es_enabled) {
+		} else if amd_sev::sev_state().is_some_and(|s| s.sev_es_enabled) {
 			let mut serial = unsafe { paravirt_uart::SerialPort::new(base) };
 			serial.init();
 			Self {

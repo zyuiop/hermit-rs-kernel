@@ -1,9 +1,9 @@
 use x86_64::instructions::interrupts::without_interrupts;
 use super::{checked_vmgexit, GhcbExitCode, GhcbProtocolError};
-use crate::arch::kernel::amd_sev::handler::{error_exit_codes, InterruptStackFrame};
+use crate::arch::kernel::amd_sev::vc_handler::{error_exit_codes, InterruptStackFrame};
 use crate::arch::kernel::amd_sev::instruction_parser::InstructionData;
 use crate::arch::x86_64::kernel::amd_sev::ghcb_protocol::ghcb::Ghcb;
-use crate::env::kernel::amd_sev::with_ghcb;
+use crate::arch::x86_64::kernel::amd_sev::ghcb_protocol::allocated_ghcb::with_ghcb;
 
 
 pub struct Hypercalls {

@@ -7,7 +7,6 @@ use hermit_entry::boot_info::{PlatformInfo, RawBootInfo};
 use raw_cpuid::CpuId;
 use memory_addresses::{PhysAddr, VirtAddr};
 use x86_64::registers::control::{Cr0, Cr3, Cr4};
-use crate::arch::kernel::amd_sev::{ghcb_negotiate_protocol, init_ghcb};
 use self::serial::SerialPort;
 use crate::arch::x86_64::kernel::core_local::*;
 use crate::env::{self, is_uhyve};
@@ -144,16 +143,13 @@ pub fn args() -> Option<&'static str> {
 #[cfg(target_os = "none")]
 pub fn boot_processor_init() {
 	let sev = if cfg!(feature = "amd-sev") {
-		let sev = amd_sev::init();
+		let sev = amd_sev::sev_state();
 		if sev.is_some_and(|sev| sev.sev_enabled) {
 			info!("Enabled AMD encrypted memory support! ({sev:?})");
 		};
 		
 		sev
 	} else { None };
-
-	// amd_sev::setup_early_idt_64b();
-	// amd_sev::ghcb_request_exit(69);
 
 	processor::detect_features();
 	processor::configure();
@@ -177,8 +173,7 @@ pub fn boot_processor_init() {
 	info!("Interrupts installed!");
 
 	if sev.is_some_and(|sev| sev.sev_es_enabled) {
-		amd_sev::init_ghcb();
-		amd_sev::init_ioctl();
+		amd_sev::post_init();
 	}
 
 	pic::init(); // init PIC after interrupts have been installed (VC handler for AMD SEV)

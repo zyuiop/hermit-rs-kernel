@@ -7,13 +7,17 @@ use crate::arch::x86_64::kernel::amd_sev::ghcb_protocol::ghcb_msr::{ghcb_request
 use super::ghcb_protocol::{GhcbExitCode, GhcbProtocolError};
 use x86_64::structures::idt::InterruptStackFrameValue;
 use crate::arch::interrupts::ExceptionStackFrame;
-use crate::arch::kernel::amd_sev::{instruction_parser, with_ghcb};
-use crate::arch::kernel::amd_sev::handler_cpuid::CpuIdHandler;
+use crate::arch::kernel::amd_sev::instruction_parser;
+use crate::arch::x86_64::kernel::amd_sev::ghcb_protocol::allocated_ghcb::with_ghcb;
 use crate::arch::x86_64::kernel::amd_sev::ghcb_protocol::ghcb::Ghcb;
-use crate::env::kernel::amd_sev::handler_ioio::IoIoHandler;
-use crate::env::kernel::amd_sev::handler_mmio::MmioHandler;
-use crate::env::kernel::amd_sev::handler_msr::MsrHandler;
 use crate::env::kernel::amd_sev::instruction_parser::InstructionData;
+
+
+
+mod handler_cpuid;
+mod handler_ioio;
+mod handler_mmio;
+mod handler_msr;
 
 #[naked]
 pub extern "x86-interrupt" fn vmm_interrupt_exception(
@@ -189,9 +193,9 @@ pub trait VcHandler {
 const HANDLERS: [Option<&'static dyn VcHandler>; 0xB0] = {
     let mut base: [Option<&'static dyn VcHandler>; 0xB0] = [None; 0xB0];
 
-    base[GhcbExitCode::IoIoProtocol as usize] = Some(&IoIoHandler);
-    base[GhcbExitCode::CPUID as usize] = Some(&CpuIdHandler);
-    base[GhcbExitCode::MsrProtocol as usize] = Some(&MsrHandler);
+    base[GhcbExitCode::IoIoProtocol as usize] = Some(&handler_ioio::IoIoHandler);
+    base[GhcbExitCode::CPUID as usize] = Some(&handler_cpuid::CpuIdHandler);
+    base[GhcbExitCode::MsrProtocol as usize] = Some(&handler_msr::MsrHandler);
 
     base
 };
@@ -201,7 +205,7 @@ const FAULT_NPF: usize = 0x400;
 const FAULT_HANDLERS: [Option<&'static dyn VcHandler>; 0x4] = {
     let mut base: [Option<&'static dyn VcHandler>; 0x4] = [None; 0x4];
 
-    base[FAULT_NPF & 0xff] = Some(&MmioHandler);
+    base[FAULT_NPF & 0xff] = Some(&handler_mmio::MmioHandler);
 
     base
 };

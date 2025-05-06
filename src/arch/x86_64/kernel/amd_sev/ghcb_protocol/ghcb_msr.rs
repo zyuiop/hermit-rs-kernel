@@ -2,6 +2,8 @@ use core::arch::asm;
 use x86_64::PhysAddr;
 use x86_64::registers::model_specific::Msr;
 
+use super::error_exit_codes;
+
 pub const GHCB_MSR: GhcbMsr = GhcbMsr::new();
 
 #[derive(Debug)]
@@ -154,5 +156,37 @@ impl GhcbMsr {
         unsafe {
             self.0.read().into()
         }
+    }
+}
+
+
+const MAX_GHCB_PROTOCOL_VERSION: u16 = 1;
+
+pub fn ghcb_negotiate_protocol() -> u16 {
+    let GhcbMsrResponse::SevInformation {
+        max_proto,
+        min_proto,
+        c_bit_pos,
+    } = GHCB_MSR.send_request_restore(GhcbMsrRequest::SevRequest)
+    else {
+        sev_exit!(
+			error_exit_codes::EXIT_VC_INVALID_EXIT_CODE,
+			"Invalid GHCB MSR response"
+		);
+    };
+
+    // info!("Got GHCB protocol versions: max={max_proto}, min={min_proto} - c_bit_pos={c_bit_pos}");
+
+    if max_proto < MAX_GHCB_PROTOCOL_VERSION || min_proto > MAX_GHCB_PROTOCOL_VERSION {
+        sev_exit!(
+			error_exit_codes::EXIT_OTHER,
+			"GHCB version negotiation failed: wrong protocol version"
+		);
+    }
+
+    if MAX_GHCB_PROTOCOL_VERSION > max_proto {
+        max_proto
+    } else {
+        MAX_GHCB_PROTOCOL_VERSION
     }
 }

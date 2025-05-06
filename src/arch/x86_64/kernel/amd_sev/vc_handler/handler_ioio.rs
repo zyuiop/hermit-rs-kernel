@@ -1,11 +1,9 @@
 use crate::arch::x86_64::kernel::amd_sev::ghcb_protocol::ghcb::Ghcb;
 use crate::arch::x86_64::kernel::amd_sev::ghcb_protocol::protocol_ioio::IoIoExitInfo;
-use super::ghcb_protocol::{checked_vmgexit, GhcbExitCode, GhcbProtocolError};
-use super::ghcb_protocol::protocol_ioio::IoIoExitFlags;
-use crate::arch::x86_64::kernel::amd_sev::ghcb_protocol::ghcb_msr::ghcb_request_exit;
-use crate::env::kernel::amd_sev::handler::{error_exit_codes, InterruptStackFrame, SavedRegisters, VcHandler};
-use super::instruction_parser::{InstructionData, InstructionRepetitionMode, Size};
-use super::opcodes::io_opcode;
+use super::super::ghcb_protocol::{checked_vmgexit, GhcbExitCode, GhcbProtocolError};
+use super::super::ghcb_protocol::protocol_ioio::IoIoExitFlags;
+use crate::env::kernel::amd_sev::vc_handler::{error_exit_codes, InterruptStackFrame, SavedRegisters, VcHandler};
+use super::instruction_parser::{InstructionData};
 
 #[derive(Debug)]
 pub struct IoIoHandler;

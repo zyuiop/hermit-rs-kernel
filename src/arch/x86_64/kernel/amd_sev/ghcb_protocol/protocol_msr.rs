@@ -1,7 +1,7 @@
 use x86_64::instructions::interrupts::without_interrupts;
 use crate::arch::kernel::amd_sev::ghcb_protocol::ghcb::Ghcb;
 use crate::arch::kernel::amd_sev::ghcb_protocol::{checked_vmgexit, GhcbExitCode, GhcbProtocolError};
-use crate::arch::kernel::amd_sev::with_ghcb;
+use crate::arch::x86_64::kernel::amd_sev::ghcb_protocol::allocated_ghcb::with_ghcb;
 
 use super::error_exit_codes;
 

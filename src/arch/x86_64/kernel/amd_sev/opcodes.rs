@@ -1,6 +1,6 @@
 use x86_64::structures::idt::InterruptStackFrameValue;
 use memory_addresses::VirtAddr;
-use crate::arch::kernel::amd_sev::handler::InterruptStackFrame;
+use crate::arch::kernel::amd_sev::vc_handler::InterruptStackFrame;
 use crate::env::kernel::amd_sev::instruction_parser::InstructionData;
 
 enum OpCode {

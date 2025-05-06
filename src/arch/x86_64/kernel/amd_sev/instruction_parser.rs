@@ -1,5 +1,5 @@
 use core::slice;
-use crate::arch::kernel::amd_sev::handler::error_exit_codes;
+use crate::arch::kernel::amd_sev::vc_handler::error_exit_codes;
 use crate::env::kernel::amd_sev::opcodes::{opcode_prefix, RegisterExtensions};
 
 const MAX_INSTRUCTION_LENGTH: usize = 15;

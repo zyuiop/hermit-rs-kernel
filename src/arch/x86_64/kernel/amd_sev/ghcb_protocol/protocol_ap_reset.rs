@@ -1,6 +1,6 @@
 use x86_64::instructions::interrupts::without_interrupts;
 use super::{checked_vmgexit, GhcbExitCode, GhcbProtocolError};
-use crate::env::kernel::amd_sev::with_ghcb;
+use crate::arch::x86_64::kernel::amd_sev::ghcb_protocol::allocated_ghcb::with_ghcb;
 
 #[repr(C)]
 pub struct ApResetAddress {

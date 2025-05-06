@@ -1,9 +1,9 @@
-use super::ghcb_protocol::{protocol_mmio, GhcbProtocolError};
+use super::super::ghcb_protocol::{protocol_mmio, GhcbProtocolError};
 use memory_addresses::PhysAddr;
-use crate::arch::kernel::amd_sev::handler::InterruptStackFrame;
+use crate::arch::kernel::amd_sev::vc_handler::InterruptStackFrame;
 use crate::arch::kernel::amd_sev::instruction_parser::{InstructionData, Size};
 use crate::arch::x86_64::kernel::amd_sev::ghcb_protocol::ghcb::Ghcb;
-use crate::env::kernel::amd_sev::handler::VcHandler;
+use crate::env::kernel::amd_sev::vc_handler::VcHandler;
 #[derive(Debug)]
 pub struct MmioHandler;
 

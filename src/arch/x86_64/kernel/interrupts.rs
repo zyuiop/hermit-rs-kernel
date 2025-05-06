@@ -21,7 +21,7 @@ use crate::drivers::InterruptHandlerQueue;
 use crate::drivers::mmio::get_interrupt_handlers;
 #[cfg(feature = "pci")]
 use crate::drivers::pci::get_interrupt_handlers;
-use crate::env::kernel::amd_sev::vmm_interrupt_exception;
+use crate::env::kernel::amd_sev::vc_handler::vmm_interrupt_exception;
 use crate::scheduler::{self, CoreId};
 
 static IRQ_HANDLERS: OnceCell<HashMap<u8, InterruptHandlerQueue, RandomState>> = OnceCell::new();
