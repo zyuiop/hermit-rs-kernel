@@ -53,7 +53,7 @@ unsafe impl GlobalAlloc for LockedAllocator {
 	}
 }
 
-#[cfg(all(test, not(target_os = "none")))]
+#[cfg(all(test, not(any(target_os = "none", target_os = "uefi"))))]
 mod tests {
 	use core::mem;
 

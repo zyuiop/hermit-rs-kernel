@@ -1,6 +1,6 @@
 #![allow(clippy::result_unit_err)]
 
-#[cfg(all(target_os = "none", not(feature = "common-os")))]
+#[cfg(all(any(target_os = "none", target_os = "uefi"), not(feature = "common-os")))]
 use core::alloc::{GlobalAlloc, Layout};
 use core::ffi::{CStr, c_char, c_ulong};
 use core::marker::PhantomData;
@@ -21,7 +21,7 @@ pub use self::timer::*;
 use crate::executor::block_on;
 use crate::fd::{self, AccessPermission, EventFlags, FileDescriptor, OpenOption, PollFd, dup_object, dup_object2, get_object, isatty, remove_object, insert_object};
 use crate::fs::{self, ioctl, FileAttr};
-#[cfg(all(target_os = "none", not(feature = "common-os")))]
+#[cfg(all(any(target_os = "none", target_os = "uefi"), not(feature = "common-os")))]
 use crate::mm::ALLOCATOR;
 use crate::syscalls::interfaces::SyscallInterface;
 use crate::{env, io};
@@ -81,7 +81,7 @@ pub(crate) fn init() {
 /// Returning a null pointer indicates that either memory is exhausted or
 /// `size` and `align` do not meet this allocator's size or alignment constraints.
 ///
-#[cfg(all(target_os = "none", not(feature = "common-os")))]
+#[cfg(all(any(target_os = "none", target_os = "uefi"), not(feature = "common-os")))]
 #[hermit_macro::system]
 #[unsafe(no_mangle)]
 pub extern "C" fn sys_alloc(size: usize, align: usize) -> *mut u8 {
@@ -98,7 +98,7 @@ pub extern "C" fn sys_alloc(size: usize, align: usize) -> *mut u8 {
 	ptr
 }
 
-#[cfg(all(target_os = "none", not(feature = "common-os")))]
+#[cfg(all(any(target_os = "none", target_os = "uefi"), not(feature = "common-os")))]
 #[hermit_macro::system]
 #[unsafe(no_mangle)]
 pub extern "C" fn sys_alloc_zeroed(size: usize, align: usize) -> *mut u8 {
@@ -117,7 +117,7 @@ pub extern "C" fn sys_alloc_zeroed(size: usize, align: usize) -> *mut u8 {
 	ptr
 }
 
-#[cfg(all(target_os = "none", not(feature = "common-os")))]
+#[cfg(all(any(target_os = "none", target_os = "uefi"), not(feature = "common-os")))]
 #[hermit_macro::system]
 #[unsafe(no_mangle)]
 pub extern "C" fn sys_malloc(size: usize, align: usize) -> *mut u8 {
@@ -153,7 +153,7 @@ pub extern "C" fn sys_malloc(size: usize, align: usize) -> *mut u8 {
 /// # Errors
 /// Returns null if the new layout does not meet the size and alignment constraints of the
 /// allocator, or if reallocation otherwise fails.
-#[cfg(all(target_os = "none", not(feature = "common-os")))]
+#[cfg(all(any(target_os = "none", target_os = "uefi"), not(feature = "common-os")))]
 #[hermit_macro::system]
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn sys_realloc(
@@ -194,7 +194,7 @@ pub unsafe extern "C" fn sys_realloc(
 ///
 /// # Errors
 /// May panic if debug assertions are enabled and invalid parameters `size` or `align` where passed.
-#[cfg(all(target_os = "none", not(feature = "common-os")))]
+#[cfg(all(any(target_os = "none", target_os = "uefi"), not(feature = "common-os")))]
 #[hermit_macro::system]
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn sys_dealloc(ptr: *mut u8, size: usize, align: usize) {
@@ -214,7 +214,7 @@ pub unsafe extern "C" fn sys_dealloc(ptr: *mut u8, size: usize, align: usize) {
 	}
 }
 
-#[cfg(all(target_os = "none", not(feature = "common-os")))]
+#[cfg(all(any(target_os = "none", target_os = "uefi"), not(feature = "common-os")))]
 #[hermit_macro::system]
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn sys_free(ptr: *mut u8, size: usize, align: usize) {
@@ -678,7 +678,7 @@ pub extern "C" fn sys_image_start_addr() -> usize {
 mod tests {
 	use super::*;
 
-	#[cfg(target_os = "none")]
+	#[cfg(any(target_os = "none", target_os = "uefi"))]
 	#[test_case]
 	fn test_get_application_parameters() {
 		crate::env::init();

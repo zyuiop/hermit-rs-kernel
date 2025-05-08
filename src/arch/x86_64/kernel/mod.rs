@@ -26,7 +26,7 @@ pub mod pit;
 pub mod processor;
 pub mod scheduler;
 pub mod serial;
-#[cfg(target_os = "none")]
+#[cfg(any(target_os = "none", target_os = "uefi"))]
 mod start;
 pub mod switch;
 #[cfg(feature = "common-os")]
@@ -140,7 +140,7 @@ pub fn args() -> Option<&'static str> {
 }
 
 /// Real Boot Processor initialization as soon as we have put the first Welcome message on the screen.
-#[cfg(target_os = "none")]
+#[cfg(any(target_os = "none", target_os = "uefi"))]
 pub fn boot_processor_init() {
 	let sev = if cfg!(feature = "amd-sev") {
 		let sev = amd_sev::sev_state();
@@ -205,7 +205,7 @@ pub fn boot_processor_init() {
 }
 
 /// Application Processor initialization
-#[cfg(all(target_os = "none", feature = "smp"))]
+#[cfg(all(any(target_os = "none", target_os = "uefi"), feature = "smp"))]
 pub fn application_processor_init() {
 	CoreLocal::install();
 	processor::configure();
@@ -239,7 +239,7 @@ pub fn boot_next_processor() {
 
 	if !env::is_uhyve() {
 		if cpu_online == 0 {
-			#[cfg(all(target_os = "none", feature = "smp"))]
+			#[cfg(all(any(target_os = "none", target_os = "uefi"), feature = "smp"))]
 			apic::boot_application_processors();
 		}
 
@@ -260,7 +260,7 @@ pub static CPU_ONLINE: AtomicU32 = AtomicU32::new(0);
 
 pub static CURRENT_STACK_ADDRESS: AtomicPtr<u8> = AtomicPtr::new(ptr::null_mut());
 
-#[cfg(target_os = "none")]
+#[cfg(any(target_os = "none", target_os = "uefi"))]
 #[inline(never)]
 #[unsafe(no_mangle)]
 unsafe extern "C" fn pre_init(boot_info: Option<&'static RawBootInfo>, cpu_id: u32) -> ! {

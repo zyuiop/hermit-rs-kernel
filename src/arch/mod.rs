@@ -5,7 +5,7 @@ cfg_if::cfg_if! {
 		pub(crate) mod aarch64;
 		pub(crate) use self::aarch64::*;
 
-		#[cfg(target_os = "none")]
+		#[cfg(any(target_os = "none", target_os = "uefi"))]
 		pub(crate) use self::aarch64::kernel::boot_processor_init;
 		pub(crate) use self::aarch64::kernel::core_local;
 		pub(crate) use self::aarch64::kernel::interrupts;
@@ -31,7 +31,7 @@ cfg_if::cfg_if! {
 			set_oneshot_timer,
 			wakeup_core,
 		};
-		#[cfg(all(target_os = "none", feature = "smp"))]
+		#[cfg(all(any(target_os = "none", target_os = "uefi"), feature = "smp"))]
 		pub(crate) use self::x86_64::kernel::application_processor_init;
 		pub(crate) use self::x86_64::kernel::core_local;
 		pub(crate) use self::x86_64::kernel::gdt::set_current_kernel_stack;
@@ -41,7 +41,7 @@ cfg_if::cfg_if! {
 		pub(crate) use self::x86_64::kernel::processor;
 		pub(crate) use self::x86_64::kernel::scheduler;
 		pub(crate) use self::x86_64::kernel::switch;
-		#[cfg(target_os = "none")]
+		#[cfg(any(target_os = "none", target_os = "uefi"))]
 		pub(crate) use self::x86_64::kernel::boot_processor_init;
 		pub(crate) use self::x86_64::kernel::{
 			get_processor_count,

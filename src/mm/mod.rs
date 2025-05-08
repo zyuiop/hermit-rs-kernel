@@ -17,7 +17,7 @@ pub use crate::arch::mm::paging::virtual_to_physical;
 use crate::arch::mm::paging::{BasePageSize, LargePageSize, PageSize};
 use crate::{arch, env};
 
-#[cfg(target_os = "none")]
+#[cfg(any(target_os = "none", target_os = "uefi"))]
 #[global_allocator]
 pub(crate) static ALLOCATOR: LockedAllocator = LockedAllocator::new();
 
@@ -29,7 +29,7 @@ pub(crate) use crate::arch::x86_64::kernel::amd_sev::decrypted_allocator::Shared
 
 /// Physical and virtual address range of the 2 MiB pages that map the kernel.
 static KERNEL_ADDR_RANGE: Lazy<Range<VirtAddr>> = Lazy::new(|| {
-	if cfg!(target_os = "none") {
+	if cfg!(any(target_os = "none", target_os = "uefi")) {
 		// Calculate the start and end addresses of the 2 MiB page(s) that map the kernel.
 		env::get_base_address().align_down(LargePageSize::SIZE)
 			..(env::get_base_address() + env::get_image_size()).align_up(LargePageSize::SIZE)
@@ -46,7 +46,7 @@ pub(crate) fn kernel_end_address() -> VirtAddr {
 	KERNEL_ADDR_RANGE.end
 }
 
-#[cfg(target_os = "none")]
+#[cfg(any(target_os = "none", target_os = "uefi"))]
 pub(crate) fn init() {
 	use crate::arch::mm::paging;
 

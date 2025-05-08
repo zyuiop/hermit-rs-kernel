@@ -741,7 +741,7 @@ pub fn init_next_processor_variables() {
 /// This algorithm is derived from Intel MultiProcessor Specification 1.4, B.4, but testing has shown
 /// that a second STARTUP IPI and setting the BIOS Reset Vector are no longer necessary.
 /// This is partly confirmed by <https://wiki.osdev.org/Symmetric_Multiprocessing>
-#[cfg(all(target_os = "none", feature = "smp"))]
+#[cfg(all(any(target_os = "none", target_os = "uefi"), feature = "smp"))]
 pub fn boot_application_processors() {
 	use core::hint;
 

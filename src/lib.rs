@@ -24,14 +24,14 @@
 	feature(specialization)
 )]
 #![feature(thread_local)]
-#![cfg_attr(target_os = "none", no_std)]
-#![cfg_attr(target_os = "none", feature(custom_test_frameworks))]
-#![cfg_attr(all(target_os = "none", test), test_runner(crate::test_runner))]
+#![cfg_attr(any(target_os = "none", target_os = "uefi"), no_std)]
+#![cfg_attr(any(target_os = "none", target_os = "uefi"), feature(custom_test_frameworks))]
+#![cfg_attr(all(any(target_os = "none", target_os = "uefi"), test), test_runner(crate::test_runner))]
 #![cfg_attr(
-	all(target_os = "none", test),
+	all(any(target_os = "none", target_os = "uefi"), test),
 	reexport_test_harness_main = "test_main"
 )]
-#![cfg_attr(all(target_os = "none", test), no_main)]
+#![cfg_attr(all(any(target_os = "none", target_os = "uefi"), test), no_main)]
 
 // EXTERNAL CRATES
 #[macro_use]
@@ -40,7 +40,7 @@ extern crate alloc;
 extern crate bitflags;
 #[macro_use]
 extern crate log;
-#[cfg(not(target_os = "none"))]
+#[cfg(not(any(target_os = "none", target_os = "uefi")))]
 #[macro_use]
 extern crate std;
 #[macro_use]
@@ -87,11 +87,11 @@ pub mod time;
 
 hermit_entry::define_abi_tag!();
 
-#[cfg(target_os = "none")]
+#[cfg(any(target_os = "none", target_os = "uefi"))]
 hermit_entry::define_entry_version!();
 
 #[cfg(test)]
-#[cfg(target_os = "none")]
+#[cfg(any(target_os = "none", target_os = "uefi"))]
 #[unsafe(no_mangle)]
 extern "C" fn runtime_entry(_argc: i32, _argv: *const *const u8, _env: *const *const u8) -> ! {
 	println!("Executing hermit unittests. Any arguments are dropped");
@@ -109,7 +109,7 @@ pub fn test_runner(tests: &[&dyn Fn()]) {
 	core_scheduler().exit(0)
 }
 
-#[cfg(target_os = "none")]
+#[cfg(any(target_os = "none", target_os = "uefi"))]
 #[test_case]
 fn trivial_test() {
 	println!("Test test test");
@@ -117,7 +117,7 @@ fn trivial_test() {
 }
 
 /// Entry point of a kernel thread, which initialize the libos
-#[cfg(target_os = "none")]
+#[cfg(any(target_os = "none", target_os = "uefi"))]
 extern "C" fn initd(_arg: usize) {
 	unsafe extern "C" {
 		#[cfg(all(not(test), not(any(feature = "nostd", feature = "common-os"))))]
@@ -175,7 +175,7 @@ fn synch_all_cores() {
 }
 
 /// Entry Point of Hermit for the Boot Processor
-#[cfg(target_os = "none")]
+#[cfg(any(target_os = "none", target_os = "uefi"))]
 fn boot_processor_main() -> ! {
 	// Initialize the AMD-SEV module immediately
 	#[cfg(all(target_arch = "x86_64", feature = "amd-sev"))]
@@ -241,7 +241,7 @@ fn boot_processor_main() -> ! {
 }
 
 /// Entry Point of Hermit for an Application Processor
-#[cfg(all(target_os = "none", feature = "smp"))]
+#[cfg(all(any(target_os = "none", target_os = "uefi"), feature = "smp"))]
 fn application_processor_main() -> ! {
 	arch::application_processor_init();
 	#[cfg(not(target_arch = "riscv64"))]
@@ -258,7 +258,7 @@ fn application_processor_main() -> ! {
 	PerCoreScheduler::run();
 }
 
-#[cfg(target_os = "none")]
+#[cfg(any(target_os = "none", target_os = "uefi"))]
 #[panic_handler]
 fn panic(info: &core::panic::PanicInfo<'_>) -> ! {
 	let core_id = crate::arch::core_local::core_id();

@@ -7,7 +7,7 @@ pub mod pci;
 pub mod processor;
 pub mod scheduler;
 pub mod serial;
-#[cfg(target_os = "none")]
+#[cfg(any(target_os = "none", target_os = "uefi"))]
 mod start;
 pub mod switch;
 pub mod systemtime;
@@ -82,7 +82,7 @@ pub(crate) static CPU_ONLINE: AlignedAtomicU32 = AlignedAtomicU32(AtomicU32::new
 
 pub(crate) static CURRENT_STACK_ADDRESS: AtomicPtr<u8> = AtomicPtr::new(ptr::null_mut());
 
-#[cfg(target_os = "none")]
+#[cfg(any(target_os = "none", target_os = "uefi"))]
 global_asm!(include_str!("start.s"));
 
 pub fn is_uhyve_with_pci() -> bool {
@@ -139,7 +139,7 @@ pub fn args() -> Option<&'static str> {
 }
 
 /// Real Boot Processor initialization as soon as we have put the first Welcome message on the screen.
-#[cfg(target_os = "none")]
+#[cfg(any(target_os = "none", target_os = "uefi"))]
 pub fn boot_processor_init() {
 	if !crate::env::is_uhyve() {
 		processor::configure();

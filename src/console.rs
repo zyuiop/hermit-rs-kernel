@@ -88,7 +88,7 @@ pub fn _panic_print(args: fmt::Arguments<'_>) {
 	mem::forget(console);
 }
 
-#[cfg(all(test, not(target_os = "none")))]
+#[cfg(all(test, not(any(target_os = "none", target_os = "uefi"))))]
 mod tests {
 	use super::*;
 

@@ -99,7 +99,7 @@ impl CoreLocal {
 }
 
 pub(crate) fn core_id() -> CoreId {
-	if cfg!(target_os = "none") {
+	if cfg!(any(target_os = "none", target_os = "uefi")) {
 		CoreLocal::get().core_id
 	} else {
 		0

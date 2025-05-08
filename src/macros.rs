@@ -3,7 +3,7 @@
 /// Adapted from [`std::print`].
 ///
 /// [`std::print`]: https://doc.rust-lang.org/stable/std/macro.print.html
-#[cfg(target_os = "none")]
+#[cfg(any(target_os = "none", target_os = "uefi"))]
 #[macro_export]
 macro_rules! print {
     ($($arg:tt)*) => {{
@@ -16,7 +16,7 @@ macro_rules! print {
 /// Adapted from [`std::println`].
 ///
 /// [`std::println`]: https://doc.rust-lang.org/stable/std/macro.println.html
-#[cfg(target_os = "none")]
+#[cfg(any(target_os = "none", target_os = "uefi"))]
 #[macro_export]
 macro_rules! println {
     () => {
@@ -28,7 +28,7 @@ macro_rules! println {
 }
 
 /// Emergency output.
-#[cfg(target_os = "none")]
+#[cfg(any(target_os = "none", target_os = "uefi"))]
 #[macro_export]
 macro_rules! panic_println {
     () => {{
@@ -39,7 +39,7 @@ macro_rules! panic_println {
     }};
 }
 
-#[cfg(not(target_os = "none"))]
+#[cfg(not(any(target_os = "none", target_os = "uefi")))]
 #[macro_export]
 macro_rules! panic_println {
     ($($arg:tt)*) => {
@@ -50,7 +50,7 @@ macro_rules! panic_println {
 /// Prints and returns the value of a given expression for quick and dirty
 /// debugging.
 // Copied from std/macros.rs
-#[cfg(target_os = "none")]
+#[cfg(any(target_os = "none", target_os = "uefi"))]
 #[macro_export]
 macro_rules! dbg {
     // NOTE: We cannot use `concat!` to make a static string as a format argument
