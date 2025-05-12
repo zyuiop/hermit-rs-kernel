@@ -208,7 +208,7 @@ pub fn boot_processor_init() {
 /// Application Processor initialization
 #[cfg(all(any(target_os = "none", target_os = "uefi"), feature = "smp"))]
 pub fn application_processor_init() {
-	CoreLocal::install(); 
+	CoreLocal::install();
 	gdt::add_current_core();
 	interrupts::load_idt();
 
@@ -218,8 +218,6 @@ pub fn application_processor_init() {
 		amd_sev::init_application_processor();
 	}
 
-	info!("IDT and GHCB loaded");
-
 	processor::configure(); // CHECK?// Not OK: contains an instruction that reads CPUID, which is not allowed until a VC handler is registered
 	apic::init_x2apic();
 	apic::init_local_apic();
@@ -227,6 +225,8 @@ pub fn application_processor_init() {
 	debug!("Cr0 = {:?}", Cr0::read());
 	debug!("Cr4 = {:?}", Cr4::read());
 	finish_processor_init();
+
+	info!("Application processor {} initialized!", core_id());
 }
 
 fn finish_processor_init() {

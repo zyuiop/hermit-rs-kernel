@@ -26,14 +26,17 @@ where
 		);
 	};
 	let current_ghcb_addr = current_ghcb_addr.as_u64();
+	let core_id = core_id() as usize;
+	assert!(core_id < 255);
 
-	match ghcb_for_core() {
-		None => {
+	match ALLOCATED_GHCB[core_id].get() {
+		None if core_id == 0 => {
 			let addr = current_ghcb_addr as *mut Ghcb;
 			let ghcb = (unsafe { addr.as_mut().unwrap() });
 			ghcb.save.sw_scratch = current_ghcb_addr + GHCB_SCRATCH_OFFSET;
 			f(ghcb)
 		}
+		None => ghcb_request_exit(error_exit_codes::EXIT_GHCB_NOT_INITIALIZED_FOR_CORE),
 		Some(ghcb) => {
 			let physical_address = ghcb.physical_address.as_u64();
 			// Ensure the address is set in the GHCB
@@ -51,17 +54,6 @@ where
 			ghcb.save.sw_scratch = current_ghcb_addr + GHCB_SCRATCH_OFFSET;
 			f(ghcb)
 		}
-	}
-}
-
-fn ghcb_for_core<'a>() -> Option<&'a AllocatedGhcb> {
-	let core_id = core_id() as u8 as usize;
-
-	match ALLOCATED_GHCB[core_id].get() {
-		None if core_id == 0 => None,
-		// If the core is not 0, we do not use the UEFI GHCB, but rather rely on the other one temporarily
-		None => Some(ALLOCATED_GHCB[0].get().expect("GHCB not initialized for processor 0")),
-		other => other
 	}
 }
 
@@ -202,6 +194,5 @@ pub fn init_ghcb_for_core() {
 		}
 
 		assert!(ALLOCATED_GHCB[core_id].get().is_some());
-		info!("Initialized GHCB for CPU {core}");
 	}
 }

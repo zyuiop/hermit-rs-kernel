@@ -256,9 +256,7 @@ impl VMSaveArea {
         self.cs.selector = 8u16;
         self.cs.limit = 0xffff;
         self.cs.attribute = CS_ATTR_PRESENT | 0b11010; // SVM_S, CODE, READ
-
-        info!("CS register: {:x?}", self.cs);
-
+        
         // Set RIP
         self.rip = ip & 0xffff; // 16 last bits of selected segment
     }
@@ -277,16 +275,11 @@ impl AllocatedVmsa {
             return (new_virt, new_phys);
         }
 
-        info!("Allocated physical address: {phys:x?}");
-
         let mut flags = PageTableEntryFlags::empty()
             .union(PageTableEntryFlags::NO_EXECUTE | PageTableEntryFlags::WRITABLE);
         flags.set_encrypted(true);
 
         let virt = mm::map_with_flags(phys, size, flags);
-
-        info!("Mapped to virtual address: {virt:x?}");
-
         (virt, phys)
     }
 
@@ -365,7 +358,6 @@ pub fn snp_ap_create(
     processor_number: u32,
     start_addr: VirtAddr
 ) {
-    info!("Request AP creation for processor {processor_number} with start_addr: {start_addr:x?}");
     with_ghcb(|ghcb| {
         let mut page = AllocatedVmsa::allocate();
         let data = page.data();

@@ -840,9 +840,7 @@ pub fn post_configure() {
 }
 
 pub fn configure() {
-	info!("cpu::configure");
 	let cpuid = CpuId::new(); // This fails, kinda obviously...
-	info!("cpu::configure::i have a CPUID .o.");
 
 	// setup MSR EFER
 	unsafe {

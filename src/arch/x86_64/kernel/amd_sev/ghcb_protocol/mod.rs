@@ -101,6 +101,7 @@ pub mod error_exit_codes {
     pub const EXIT_TOO_MANY_CONCURRENT_USES: u8 = 0x10;
     pub const EXIT_BACKUP_RESTORE_NOT_IN_ORDER: u8 = 0x11;
     pub const EXIT_WOULD_OVERWRITE_BACKUP: u8 = 0x12;
+    pub const EXIT_GHCB_NOT_INITIALIZED_FOR_CORE: u8 = 0x13;
 
     pub const EXIT_VC_INVALIDOP: u8 = 0x70;
     pub const EXIT_VC_UNHANDLED: u8 = 0x80;
