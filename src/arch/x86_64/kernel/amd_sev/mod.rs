@@ -15,18 +15,16 @@ pub mod instruction_parser;
 mod opcodes;
 pub(crate) mod paravirt_uart;
 pub mod decrypted_allocator;
-pub mod detection;
 pub(crate) mod sev_guest_ioctl;
 
 mod secrets;
+pub mod sev_status;
 
 use bit_field::BitField;
 use hermit_sync::OnceCell;
 use x86_64::registers::model_specific::Msr;
 use x86_64::structures::mem_encrypt::MemoryEncryptionConfiguration;
-
-
-const MSR_AMD_SEV: Msr = Msr::new(0xc0010131);
+use crate::env::kernel::amd_sev::sev_status::{SevStatusFlags, MSR_AMD_SEV};
 
 /// Represents the current enablement state of AMD Secure Encrypted Virtualization features
 #[derive(Copy, Clone, Debug)]
@@ -37,12 +35,14 @@ pub struct SevState {
 	/// True if Secure Nested Paging is enabled.
 	///
 	/// Implies `sev_es_enabled` = true and `sev_enabled` = true
-	pub snp_enabled: bool,
+	pub sev_snp_enabled: bool,
 
 	/// True if Encrypted State is enabled.
 	///
 	/// Implies `sev_enabled` = true
 	pub sev_es_enabled: bool,
+
+	pub sev_status: SevStatusFlags,
 
 	/// Custom flag used to set the encryption bit in page table entries
 	pub c_bit_mask: u64,
@@ -86,10 +86,10 @@ pub fn enable_sev<'a>() -> Option<&'a SevState> {
 	let c_bit_mask = (1u64) << c_bit_pos;
 
 	// Check the MSR to see if SME is currently enabled
-	let sme_status = unsafe { MSR_AMD_SEV.read() };
-	let sev_enabled = (sme_status & 0x1) == 1;
-	let sev_es_enabled = (sme_status & 0x2) == 0x2;
-	let snp_enabled = (sme_status & 0x4) == 0x4;
+	let sev_status = MSR_AMD_SEV.read();
+	let sev_enabled = sev_status.contains(SevStatusFlags::SEV_ENABLED);
+	let sev_es_enabled = sev_status.contains(SevStatusFlags::SEV_ES_ENABLED);
+	let snp_enabled = sev_status.contains(SevStatusFlags::SEV_SNP_ACTIVE);
 
 	if !sev_enabled && !snp_enabled {
 		return None;
@@ -97,8 +97,9 @@ pub fn enable_sev<'a>() -> Option<&'a SevState> {
 
 	SEV_STATUS.set(SevState {
 		sev_enabled,
-		snp_enabled,
+		sev_snp_enabled: snp_enabled,
 		sev_es_enabled,
+		sev_status,
 		c_bit_mask
 	}).expect("SEV status was already initialized!");
 
@@ -110,7 +111,7 @@ pub fn enable_sev<'a>() -> Option<&'a SevState> {
 pub fn post_init() {
 	ghcb_protocol::allocated_ghcb::init_ghcb();
 
-	if sev_state().unwrap().snp_enabled {
+	if sev_state().unwrap().sev_snp_enabled {
 		sev_guest_ioctl::init();
 		secrets::init();
 	}

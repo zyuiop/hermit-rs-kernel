@@ -100,18 +100,32 @@ pub fn get_image_size() -> usize {
 	(range.end - range.start) as usize
 }
 
+pub static NUM_POSSIBLE_CPUS: AtomicU32 = AtomicU32::new(0);
+
 #[cfg(feature = "smp")]
-pub fn get_possible_cpus() -> u32 {
+pub fn load_possible_cpus() {
 	use core::cmp;
 
-	match env::boot_info().platform_info {
+	let possible = match env::boot_info().platform_info {
 		// FIXME: Remove get_processor_count after a transition period for uhyve 0.1.3 adoption
 		PlatformInfo::Uhyve { num_cpus, .. } => cmp::max(
 			u32::try_from(num_cpus.get()).unwrap(),
 			get_processor_count(),
 		),
 		_ => apic::local_apic_id_count(),
-	}
+	};
+
+	NUM_POSSIBLE_CPUS.store(possible, Ordering::Relaxed);
+}
+
+#[cfg(feature = "smp")]
+pub fn disable_smp() {
+	NUM_POSSIBLE_CPUS.store(1, Ordering::Relaxed);
+}
+
+#[cfg(feature = "smp")]
+pub fn get_possible_cpus() -> u32 {
+	NUM_POSSIBLE_CPUS.load(Ordering::Relaxed)
 }
 
 #[cfg(feature = "smp")]
@@ -207,12 +221,20 @@ pub fn boot_processor_init() {
 /// Application Processor initialization
 #[cfg(all(any(target_os = "none", target_os = "uefi"), feature = "smp"))]
 pub fn application_processor_init() {
-	CoreLocal::install();
-	processor::configure();
+	CoreLocal::install(); // OK
+	interrupts::load_idt();
+	amd_sev::ghcb_protocol::ghcb_msr::ghcb_request_exit(0x42);
+
+
+
+	processor::configure(); // Not OK: contains an instruction that reads CPUID, which is not allowed until a VC handler is registered
+	amd_sev::ghcb_protocol::ghcb_msr::ghcb_request_exit(0x42);
 	gdt::add_current_core();
+	amd_sev::ghcb_protocol::ghcb_msr::ghcb_request_exit(0x42);
 	interrupts::load_idt();
 	apic::init_x2apic();
 	apic::init_local_apic();
+	processor::post_configure();
 	debug!("Cr0 = {:?}", Cr0::read());
 	debug!("Cr4 = {:?}", Cr4::read());
 	finish_processor_init();

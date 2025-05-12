@@ -8,7 +8,6 @@ use core::fmt;
 use core::hint::spin_loop;
 use core::sync::atomic::Ordering;
 use core::{cmp, mem, ptr};
-
 use align_address::Align;
 #[cfg(feature = "smp")]
 use arch::x86_64::kernel::core_local::*;
@@ -29,10 +28,12 @@ use crate::arch::x86_64::mm::paging::{
 };
 use crate::arch::x86_64::swapgs;
 use crate::config::*;
-use crate::mm::virtualmem;
+use crate::mm::{virtual_to_physical, virtualmem};
 use crate::scheduler::CoreId;
 use crate::{arch, env, scheduler};
-use crate::env::kernel::amd_sev;
+use crate::arch::processor::{get_frequency, get_timestamp};
+use crate::env::kernel::{amd_sev, disable_smp};
+use crate::env::kernel::amd_sev::ghcb_protocol::protocol_ap_creation::snp_ap_create;
 
 /// APIC Location and Status (R/W) See Table 35-2. See Section 10.4.4, Local APIC  Status and Location.
 const IA32_APIC_BASE: Msr = Msr::new(0x1b);
@@ -806,14 +807,14 @@ pub fn boot_application_processors() {
 	let core_id = core_id();
 
 
-	if apic_ids.len() > 1 && amd_sev::sev_state().is_some_and(|sev| sev.sev_es_enabled) {
+	/* if apic_ids.len() > 1 && amd_sev::sev_state().is_some_and(|sev| sev.sev_es_enabled) {
 		unsafe {
 			let table = amd_sev::ghcb_protocol::protocol_ap_reset::ap_jump_table_get().unwrap();
 			let table = table.as_mut().unwrap();
 
 			table.set_addr(SMP_BOOT_CODE_ADDRESS.as_u64() as u32);
 		}
-	}
+	}*/
 
 	for (core_id_to_boot, &apic_id) in apic_ids.iter().enumerate() {
 		let core_id_to_boot = core_id_to_boot as u32;
@@ -831,34 +832,47 @@ pub fn boot_application_processors() {
 			let current_processor_count = arch::get_processor_count();
 
 			// Send an INIT IPI.
-			local_apic_write(
-				IA32_X2APIC_ICR,
-				destination
-					| APIC_ICR_LEVEL_TRIGGERED
-					| APIC_ICR_LEVEL_ASSERT
-					| APIC_ICR_DELIVERY_MODE_INIT,
-			);
-			processor::udelay(200);
+			if amd_sev::sev_state().is_some_and(|sev| sev.sev_snp_enabled) {
+				snp_ap_create(apic_id as u32, SMP_BOOT_CODE_ADDRESS)
+			} else {
+				local_apic_write(
+					IA32_X2APIC_ICR,
+					destination
+						| APIC_ICR_LEVEL_TRIGGERED
+						| APIC_ICR_LEVEL_ASSERT
+						| APIC_ICR_DELIVERY_MODE_INIT,
+				);
 
-			local_apic_write(
-				IA32_X2APIC_ICR,
-				destination | APIC_ICR_LEVEL_TRIGGERED | APIC_ICR_DELIVERY_MODE_INIT,
-			);
-			processor::udelay(10000);
+				processor::udelay(200);
 
-			// Send a STARTUP IPI.
-			local_apic_write(
-				IA32_X2APIC_ICR,
-				destination
-					| APIC_ICR_DELIVERY_MODE_STARTUP
-					| ((SMP_BOOT_CODE_ADDRESS.as_u64()) >> 12),
-			);
-			debug!("Waiting for it to respond");
+				local_apic_write(
+					IA32_X2APIC_ICR,
+					destination | APIC_ICR_LEVEL_TRIGGERED | APIC_ICR_DELIVERY_MODE_INIT,
+				);
+				processor::udelay(10000);
+
+				// Send a STARTUP IPI.
+				local_apic_write(
+					IA32_X2APIC_ICR,
+					destination
+						| APIC_ICR_DELIVERY_MODE_STARTUP
+						| ((SMP_BOOT_CODE_ADDRESS.as_u64()) >> 12),
+				);
+				debug!("Waiting for it to respond");
+			}
+
 
 			// Wait until the application processor has finished initializing.
 			// It will indicate this by counting up cpu_online.
-			while current_processor_count == arch::get_processor_count() {
+			let end_ts = get_timestamp() + u64::from(get_frequency()) * (5_000_000);
+			while current_processor_count == arch::get_processor_count() && get_timestamp() < end_ts {
 				hint::spin_loop();
+			}
+
+			if current_processor_count == arch::get_processor_count() {
+				error!("Failed bringing APs online, continuing with a single processor.");
+				// disable_smp();
+				break
 			}
 		}
 	}

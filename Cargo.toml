@@ -138,6 +138,7 @@ volatile = "0.6"
 zerocopy = { version = "0.8", default-features = false, features = ["derive"] }
 uhyve-interface = { path = "../../uhyve/uhyve-interface" }
 aes-gcm = { version = "0.10", optional = true, default-features = false, features = ["aes", "alloc"] }
+static_assertions = "1.1.0"
 
 [profile.dev.package.polyval]
 # There is a weird compiler bug for target x86_64-unknown-none... We must therefore use the soft implementation.

@@ -8,6 +8,7 @@ pub mod ghcb_msr;
 pub mod allocated_ghcb;
 pub mod guest_request;
 mod protocol_page_state_change;
+pub mod protocol_ap_creation;
 
 use ghcb::Ghcb;
 use ghcb_msr::{ghcb_request_exit, vmgexit};

@@ -8,6 +8,7 @@ use core::ops::Range;
 
 use align_address::Align;
 use hermit_sync::Lazy;
+use x86_64::structures::paging::PageTableFlags;
 pub use memory_addresses::{PhysAddr, VirtAddr};
 
 use self::allocator::LockedAllocator;
@@ -26,6 +27,8 @@ pub(crate) use crate::mm::device_alloc::DeviceAlloc as DeviceAllocator;
 
 #[cfg(feature = "amd-sev")]
 pub(crate) use crate::arch::x86_64::kernel::amd_sev::decrypted_allocator::SharedPagesAllocator as DeviceAllocator;
+#[cfg(feature = "amd-sev")]
+pub(crate) use crate::mm::device_alloc::DeviceAlloc as EncryptedDeviceAllocator;
 
 /// Physical and virtual address range of the 2 MiB pages that map the kernel.
 static KERNEL_ADDR_RANGE: Lazy<Range<VirtAddr>> = Lazy::new(|| {
@@ -263,9 +266,6 @@ pub(crate) fn map(
 	#[cfg(target_arch = "x86_64")]
 	use crate::arch::mm::paging::PageTableEntryFlagsExt;
 
-	let size = size.align_up(BasePageSize::SIZE as usize);
-	let count = size / BasePageSize::SIZE as usize;
-
 	let mut flags = PageTableEntryFlags::empty();
 	flags.normal();
 	if writable {
@@ -277,6 +277,18 @@ pub(crate) fn map(
 	if no_cache {
 		flags.device();
 	}
+
+	map_with_flags(physical_address, size, flags)
+}
+
+#[cfg(any(feature = "pci", feature = "amd-sev"))]
+pub(crate) fn map_with_flags(
+	physical_address: PhysAddr,
+	size: usize,
+	flags: PageTableFlags
+) -> VirtAddr {
+	let size = size.align_up(BasePageSize::SIZE as usize);
+	let count = size / BasePageSize::SIZE as usize;
 
 	let virtual_address = self::virtualmem::allocate(size).unwrap();
 	arch::mm::paging::map::<BasePageSize>(virtual_address, physical_address, count, flags);

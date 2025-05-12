@@ -45,6 +45,8 @@ extern crate log;
 extern crate std;
 #[macro_use]
 extern crate num_derive;
+#[macro_use]
+extern crate static_assertions;
 
 #[cfg(feature = "smp")]
 use core::hint::spin_loop;
@@ -53,8 +55,10 @@ use core::sync::atomic::{AtomicU32, Ordering};
 use arch::core_local::*;
 
 pub(crate) use crate::arch::*;
+use crate::arch::kernel::amd_sev;
 pub use crate::config::DEFAULT_STACK_SIZE;
 pub(crate) use crate::config::*;
+use crate::env::kernel::load_possible_cpus;
 pub use crate::fs::create_file;
 use crate::kernel::is_uhyve_with_pci;
 use crate::scheduler::{PerCoreScheduler, PerCoreSchedulerExt};
@@ -205,6 +209,9 @@ fn boot_processor_main() -> ! {
 	#[cfg(not(target_arch = "riscv64"))]
 	scheduler::add_current_core();
 	interrupts::enable();
+
+	#[cfg(feature = "smp")]
+	load_possible_cpus();
 
 	arch::kernel::boot_next_processor();
 

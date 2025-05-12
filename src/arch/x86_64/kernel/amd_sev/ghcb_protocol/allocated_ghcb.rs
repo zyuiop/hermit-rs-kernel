@@ -160,7 +160,7 @@ pub fn init_ghcb() {
 	let ghcb_version = ghcb_msr::ghcb_negotiate_protocol();
 	let mut allocated = AllocatedGhcb::new();
 
-	if sev_status.snp_enabled {
+	if sev_status.sev_snp_enabled {
 		let req = GhcbMsrRequest::RegisterGhcbGPA(x86_64::addr::PhysAddr::new(allocated.physical_address.as_u64()));
 		unsafe {
 			let resp = GHCB_MSR.send_request_restore(req);
