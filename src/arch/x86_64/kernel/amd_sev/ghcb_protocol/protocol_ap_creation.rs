@@ -317,7 +317,6 @@ impl AllocatedVmsa {
         // Declare as a VMSA page
         unsafe {
             let virt = VirtAddr::from_ptr(self.0);
-            info!("Declaring VMSA page: {virt:x?}");
             let rmpadjust = (1 << 16) | 1;
             let mut guest_addr_ret = virt.as_usize();
             asm!("rmpadjust",
@@ -363,10 +362,10 @@ impl SevFeatures {
 }
 
 pub fn snp_ap_create(
-    apic_id: u32,
+    processor_number: u32,
     start_addr: VirtAddr
 ) {
-    info!("Request AP creation for processor {apic_id} with start_addr: {start_addr:x?}");
+    info!("Request AP creation for processor {processor_number} with start_addr: {start_addr:x?}");
     with_ghcb(|ghcb| {
         let mut page = AllocatedVmsa::allocate();
         let data = page.data();
@@ -374,31 +373,14 @@ pub fn snp_ap_create(
         data.init_default_values();
         data.set_start_instr_ptr(start_addr.as_u64());
         // info!("Page status: {:x?}", data);
-
-        unsafe {
-            let ptr = page.0 as *mut u8;
-            info!("CS: {:x?}", slice::from_raw_parts(ptr.add(0x10), 16));
-            info!("RIP: {:x?}", slice::from_raw_parts(ptr.add(0x178), 8));
-        }
-
         unsafe {
             page.register();
         }
-
-        unsafe {
-            let ptr = page.0 as *mut u8;
-            info!("CS: {:x?}", slice::from_raw_parts(ptr.add(0x10), 16));
-            info!("RIP: {:x?}", slice::from_raw_parts(ptr.add(0x178), 8));
-        }
-
-        info!("Clearing GHCB and doing the stuff.");
 
         // Start the AP
         ghcb.clear();
         ghcb.save.rax = rax;
         ghcb.save.set_valid_field(&ghcb.save.rax);
-        checked_vmgexit(ghcb, GhcbExitCode::SnpApCreation, ((apic_id as u64) << 32) | 1, page.1.as_u64()).expect("failed to start application processor!");
-
-        info!("Back from doing the stuff");
+        checked_vmgexit(ghcb, GhcbExitCode::SnpApCreation, ((processor_number as u64) << 32) | 1, page.1.as_u64()).expect("failed to start application processor!");
     })
 }

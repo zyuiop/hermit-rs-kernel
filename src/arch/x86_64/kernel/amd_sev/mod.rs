@@ -109,10 +109,14 @@ pub fn enable_sev<'a>() -> Option<&'a SevState> {
 /// Finish initialization of AMD SEV, once memory mapping has been setup, just after the interrupt
 /// descriptor table is set
 pub fn post_init() {
-	ghcb_protocol::allocated_ghcb::init_ghcb();
+	ghcb_protocol::allocated_ghcb::init_ghcb_for_core();
 
 	if sev_state().unwrap().sev_snp_enabled {
 		sev_guest_ioctl::init();
 		secrets::init();
 	}
+}
+
+pub fn init_application_processor() {
+	ghcb_protocol::allocated_ghcb::init_ghcb_for_core();
 }

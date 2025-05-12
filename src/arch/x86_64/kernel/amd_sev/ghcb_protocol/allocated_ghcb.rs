@@ -2,11 +2,16 @@ use memory_addresses::PhysAddr;
 use core::sync::atomic::{AtomicBool, AtomicU8, Ordering};
 use core::ops::{Deref, DerefMut};
 use core::alloc::Layout;
+use crate::arch::core_local::core_id;
+use crate::arch::get_processor_count;
 use crate::arch::kernel::amd_sev::decrypted_allocator::SharedPagesAllocator;
 use crate::arch::kernel::amd_sev::ghcb_protocol::ghcb::Ghcb;
 use crate::arch::kernel::amd_sev::ghcb_protocol::ghcb_msr::{GhcbMsrRequest, GhcbMsrResponse, GHCB_MSR};
 use crate::arch::kernel::amd_sev::sev_state;
+use crate::arch::kernel::get_possible_cpus;
 use crate::env::kernel::amd_sev::ghcb_protocol::ghcb_msr;
+use crate::env::kernel::amd_sev::ghcb_protocol::ghcb_msr::ghcb_request_exit;
+use crate::env::kernel::amd_sev::SevState;
 use super::error_exit_codes;
 
 #[allow(static_mut_refs)]
@@ -22,7 +27,7 @@ where
 	};
 	let current_ghcb_addr = current_ghcb_addr.as_u64();
 
-	match ALLOCATED_GHCB.get() {
+	match ghcb_for_core() {
 		None => {
 			let addr = current_ghcb_addr as *mut Ghcb;
 			let ghcb = (unsafe { addr.as_mut().unwrap() });
@@ -49,7 +54,19 @@ where
 	}
 }
 
-static ALLOCATED_GHCB: hermit_sync::OnceCell<AllocatedGhcb> = hermit_sync::OnceCell::new();
+fn ghcb_for_core<'a>() -> Option<&'a AllocatedGhcb> {
+	let core_id = core_id() as u8 as usize;
+
+	match ALLOCATED_GHCB[core_id].get() {
+		None if core_id == 0 => None,
+		// If the core is not 0, we do not use the UEFI GHCB, but rather rely on the other one temporarily
+		None => Some(ALLOCATED_GHCB[0].get().expect("GHCB not initialized for processor 0")),
+		other => other
+	}
+}
+
+// Allocated GHCB per GPU
+static ALLOCATED_GHCB: [hermit_sync::OnceCell<AllocatedGhcb>; 256] = [const { hermit_sync::OnceCell::new() }; 256];
 
 struct AllocatedGhcb {
 	pub physical_address: PhysAddr,
@@ -73,14 +90,14 @@ impl<'a> Drop for GhcbLock<'a> {
 		let previous_instances = self.parent.instance_count.fetch_sub(1, Ordering::AcqRel);
 
 		if previous_instances != self.instance_number {
-			self.parent.critical_failure("out-of-order GHCB usage")
+			ghcb_request_exit(error_exit_codes::EXIT_BACKUP_RESTORE_NOT_IN_ORDER);
 		}
 
 		if self.instance_number > 1 {
 			// Restore the copy of the GHCB before returning
 			let backup_present = self.parent.backup_present.fetch_and(false, Ordering::AcqRel);
 			if !backup_present {
-				self.parent.critical_failure("GHCB copy is missing")
+				ghcb_request_exit(error_exit_codes::EXIT_BACKUP_RESTORE_NOT_IN_ORDER);
 			} else {
 				unsafe {
 					core::ptr::copy(self.parent.backup, self.parent.inner, 1);
@@ -108,21 +125,21 @@ impl<'a> DerefMut for GhcbLock<'a> {
 impl AllocatedGhcb {
 	pub fn new() -> Self {
 		let (ghcb_ptr, physical_address) = SharedPagesAllocator.allocate_with_physical(Layout::new::<Ghcb>()).expect("failed to allocate memory for GHCB");
-		let (backup_ghcb_ptr, _) = SharedPagesAllocator.allocate_with_physical(Layout::new::<Ghcb>()).expect("failed to allocate memory for GHCB backup");
+		let backup_ghcb_ptr = unsafe { alloc::alloc::alloc_zeroed(Layout::new::<Ghcb>()) };
 
 		Self {
 			physical_address: physical_address,
 			inner: ghcb_ptr.as_mut_ptr(),
 			instance_count: AtomicU8::new(0),
-			backup: backup_ghcb_ptr.as_mut_ptr(),
+			backup: backup_ghcb_ptr as *mut Ghcb,
 			backup_present: AtomicBool::new(false)
 		}
 	}
 
-	pub fn lock(&self) -> GhcbLock {
+	pub fn lock<'a>(&'a self) -> GhcbLock<'a> {
 		let instance_number = self.instance_count.fetch_add(1, Ordering::AcqRel) + 1;
 		if instance_number > 2 {
-			self.critical_failure("too many nested GHCB uses");
+			ghcb_request_exit(error_exit_codes::EXIT_TOO_MANY_CONCURRENT_USES);
 		}
 
 		let lock = GhcbLock {
@@ -134,7 +151,7 @@ impl AllocatedGhcb {
 			// Nested call: we need to make a copy of the current GHCB
 			let backup_present = self.backup_present.fetch_or(true, Ordering::AcqRel);
 			if backup_present {
-				self.critical_failure("GHCB backup already present!")
+				ghcb_request_exit(error_exit_codes::EXIT_WOULD_OVERWRITE_BACKUP);
 			}
 			unsafe {
 				core::ptr::copy(self.inner, self.backup, 1);
@@ -143,21 +160,22 @@ impl AllocatedGhcb {
 
 		lock
 	}
-
-	fn critical_failure(&self, msg: &str) -> ! {
-		// Resets the state, calls panic, and quits
-		self.instance_count.fetch_and(0, Ordering::AcqRel);
-		panic!("GHCB Manager Failure: {msg}");
-	}
 }
 
 const GHCB_SCRATCH_OFFSET: u64 = core::mem::offset_of!(Ghcb, shared_buffer) as u64;
 
-#[allow(static_mut_refs)]
-pub fn init_ghcb() {
+pub fn init_ghcb_for_core() {
+	let core = core_id();
+	assert!(core < 255);
+
 	let Some(sev_status) = sev_state() else { panic!("sev is not initialized") };
 
 	let ghcb_version = ghcb_msr::ghcb_negotiate_protocol();
+
+	if sev_status.sev_snp_enabled {
+		assert_eq!(ghcb_version, 2);
+	}
+
 	let mut allocated = AllocatedGhcb::new();
 
 	if sev_status.sev_snp_enabled {
@@ -178,8 +196,12 @@ pub fn init_ghcb() {
 	allocated.lock().deref_mut().protocol_version = ghcb_version;
 
 	unsafe {
-		if let Err(e) = ALLOCATED_GHCB.set(allocated) {
+		let core_id = core as usize;
+		if let Err(e) = ALLOCATED_GHCB[core_id].set(allocated) {
 			panic!("GHCB is already initialized!");
 		}
+
+		assert!(ALLOCATED_GHCB[core_id].get().is_some());
+		info!("Initialized GHCB for CPU {core}");
 	}
 }

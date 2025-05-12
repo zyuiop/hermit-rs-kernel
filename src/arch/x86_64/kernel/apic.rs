@@ -32,7 +32,7 @@ use crate::mm::{virtual_to_physical, virtualmem};
 use crate::scheduler::CoreId;
 use crate::{arch, env, scheduler};
 use crate::arch::processor::{get_frequency, get_timestamp};
-use crate::env::kernel::{amd_sev, disable_smp};
+use crate::env::kernel::amd_sev;
 use crate::env::kernel::amd_sev::ghcb_protocol::protocol_ap_creation::snp_ap_create;
 
 /// APIC Location and Status (R/W) See Table 35-2. See Section 10.4.4, Local APIC  Status and Location.

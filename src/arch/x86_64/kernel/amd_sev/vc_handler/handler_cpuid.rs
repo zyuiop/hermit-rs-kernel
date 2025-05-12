@@ -1,5 +1,6 @@
 use x86_64::registers::control::{Cr4, Cr4Flags};
 use x86_64::registers::xcontrol::XCr0;
+use crate::arch::core_local::core_id;
 use super::super::ghcb_protocol::{
 	checked_vmgexit, GhcbExitCode, GhcbProtocolError,
 };
@@ -22,6 +23,9 @@ impl VcHandler for CpuIdHandler {
         // TODO(SNP): v2 request is different
 
         assert_eq!(unsafe { idata.read_opcode() }, 0x0f_a2);
+		if core_id() > 1 {
+			info!("CPU ID HANDLE {:p}", ghcb as *const Ghcb);
+		}
 
 		ghcb.clear();
 		ghcb.save.rax = frame.registers.rax;

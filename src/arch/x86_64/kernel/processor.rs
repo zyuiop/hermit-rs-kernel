@@ -21,7 +21,8 @@ use x86_64::registers::segmentation::{FS, GS, Segment64};
 use x86_64::registers::xcontrol::{XCr0, XCr0Flags};
 use x86_64::structures::DescriptorTablePointer;
 use x86_64::{VirtAddr, instructions};
-
+use crate::arch::core_local::core_id;
+use crate::arch::kernel::amd_sev;
 #[cfg(feature = "acpi")]
 use crate::arch::x86_64::kernel::acpi;
 use crate::arch::x86_64::kernel::{interrupts, pic, pit};
@@ -839,7 +840,9 @@ pub fn post_configure() {
 }
 
 pub fn configure() {
-	let cpuid = CpuId::new();
+	info!("cpu::configure");
+	let cpuid = CpuId::new(); // This fails, kinda obviously...
+	info!("cpu::configure::i have a CPUID .o.");
 
 	// setup MSR EFER
 	unsafe {

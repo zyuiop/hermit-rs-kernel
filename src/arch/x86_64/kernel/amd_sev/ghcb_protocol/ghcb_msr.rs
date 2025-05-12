@@ -1,4 +1,5 @@
 use core::arch::asm;
+use core::hint::spin_loop;
 use x86_64::PhysAddr;
 use x86_64::registers::model_specific::Msr;
 
@@ -85,6 +86,10 @@ pub fn ghcb_request_exit(exit_code: u8) -> ! {
         reason: exit_code,
         source: 2,
     });
+
+    loop {
+        spin_loop();
+    }
 }
 
 pub unsafe fn vmgexit() {
@@ -160,7 +165,7 @@ impl GhcbMsr {
 }
 
 
-const MAX_GHCB_PROTOCOL_VERSION: u16 = 1;
+const MAX_GHCB_PROTOCOL_VERSION: u16 = 2;
 
 pub fn ghcb_negotiate_protocol() -> u16 {
     let GhcbMsrResponse::SevInformation {
