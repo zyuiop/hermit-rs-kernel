@@ -335,15 +335,18 @@ pub unsafe extern "C" fn sys_opendir(name: *const c_char) -> RawFd {
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn sys_open(name: *const c_char, flags: i32, mode: u32) -> RawFd {
 	let Some(flags) = OpenOption::from_bits(flags) else {
+		error!("open: invalid open options flags {flags}");
 		return -i32::from(Errno::Inval);
 	};
 	let Some(mode) = AccessPermission::from_bits(mode) else {
+		error!("open: invalid access permissions options flags {mode}");
 		return -i32::from(Errno::Inval);
 	};
 
 	if let Ok(name) = unsafe { CStr::from_ptr(name) }.to_str() {
 		crate::fs::open(name, flags, mode).unwrap_or_else(|e| -i32::from(e))
 	} else {
+		error!("open: invalid C-string file name");
 		-i32::from(Errno::Inval)
 	}
 }

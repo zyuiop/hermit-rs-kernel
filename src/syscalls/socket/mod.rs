@@ -581,7 +581,7 @@ pub unsafe extern "C" fn sys_getaddrbyname(
 #[hermit_macro::system(errno)]
 #[unsafe(no_mangle)]
 pub extern "C" fn sys_socket(domain: i32, type_: i32, protocol: i32) -> i32 {
-	debug!("sys_socket: domain {domain}, type {type_:?}, protocol {protocol}");
+    info!("sys_socket: domain {domain}, type {type_:?}, protocol {protocol}");
 
 	let Ok(Ok(domain)) = u8::try_from(domain).map(Af::try_from) else {
 		return -i32::from(Errno::Afnosupport);
@@ -754,12 +754,15 @@ pub extern "C" fn sys_listen(fd: i32, backlog: i32) -> i32 {
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn sys_bind(fd: i32, name: *const sockaddr, namelen: socklen_t) -> i32 {
 	if name.is_null() {
+		warn!("sys_bind: name is null");
+
 		return -i32::from(Errno::Destaddrreq);
 	}
 
 	let Ok(family) = (unsafe { Af::try_from((*name).sa_family) }) else {
 		return -i32::from(Errno::Inval);
 	};
+    info!("sys_bind {fd}");
 
 	let obj = get_object(fd);
 	obj.map_or_else(
@@ -768,6 +771,8 @@ pub unsafe extern "C" fn sys_bind(fd: i32, name: *const sockaddr, namelen: sockl
 			#[cfg(feature = "net")]
 			Af::Inet => {
 				if namelen < u32::try_from(size_of::<sockaddr_in>()).unwrap() {
+					warn!("AF_INET: invalid struct {namelen} < {}", size_of::<sockaddr_in>());
+
 					return -i32::from(Errno::Inval);
 				}
 				let endpoint = IpListenEndpoint::from(unsafe { *name.cast::<sockaddr_in>() });
@@ -780,6 +785,8 @@ pub unsafe extern "C" fn sys_bind(fd: i32, name: *const sockaddr, namelen: sockl
 			#[cfg(feature = "net")]
 			Af::Inet6 => {
 				if namelen < u32::try_from(size_of::<sockaddr_in6>()).unwrap() {
+					warn!("AF_INET6: invalid struct {namelen} < {}", size_of::<sockaddr_in6>());
+
 					return -i32::from(Errno::Inval);
 				}
 				let endpoint = IpListenEndpoint::from(unsafe { *name.cast::<sockaddr_in6>() });
@@ -792,6 +799,8 @@ pub unsafe extern "C" fn sys_bind(fd: i32, name: *const sockaddr, namelen: sockl
 			#[cfg(feature = "virtio-vsock")]
 			Af::Vsock => {
 				if namelen < u32::try_from(size_of::<sockaddr_vm>()).unwrap() {
+					warn!("AF_VSOCK: invalid struct {namelen} < {}", size_of::<sockaddr_vm>());
+
 					return -i32::from(Errno::Inval);
 				}
 				let endpoint = VsockListenEndpoint::from(unsafe { *name.cast::<sockaddr_vm>() });
@@ -934,13 +943,14 @@ pub unsafe extern "C" fn sys_setsockopt(
 		return -i32::from(Errno::Inval);
 	};
 
-	debug!("sys_setsockopt: {fd}, level {level:?}, optname {optname}");
+	info!("sys_setsockopt: {fd}, level {level:?}, optname {optname}");
 
 	if level == Ipproto::Tcp
 		&& optname == TCP_NODELAY
 		&& optlen == u32::try_from(size_of::<i32>()).unwrap()
 	{
 		if optval.is_null() {
+            warn!("null optval!");
 			return -i32::from(Errno::Inval);
 		}
 
@@ -962,7 +972,8 @@ pub unsafe extern "C" fn sys_setsockopt(
 			},
 		)
 	} else {
-		-i32::from(Errno::Inval)
+		warn!("setsockopt: faking success for unsupported level/optname: {level:?} {optname:?}!");
+		0
 	}
 }
 
