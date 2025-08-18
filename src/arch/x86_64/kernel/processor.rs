@@ -781,20 +781,7 @@ pub fn detect_features() {
 	Lazy::force(&FEATURES);
 }
 
-pub fn configure() {
-	let cpuid = CpuId::new();
-
-	// setup MSR EFER
-	unsafe {
-		Efer::update(|flags| {
-			flags.insert(
-				EferFlags::SYSTEM_CALL_EXTENSIONS
-					| EferFlags::LONG_MODE_ACTIVE
-					| EferFlags::NO_EXECUTE_ENABLE,
-			);
-		});
-	}
-
+pub fn post_configure() {
 	//
 	// CR0 CONFIGURATION
 	//
@@ -811,6 +798,21 @@ pub fn configure() {
 			flags.insert(Cr0Flags::WRITE_PROTECT);
 
 			debug!("Setting CR0 = {flags:?}");
+		});
+	}
+}
+
+pub fn configure() {
+	let cpuid = CpuId::new();
+
+	// setup MSR EFER
+	unsafe {
+		Efer::update(|flags| {
+			flags.insert(
+				EferFlags::SYSTEM_CALL_EXTENSIONS
+					| EferFlags::LONG_MODE_ENABLE
+					| EferFlags::NO_EXECUTE_ENABLE,
+			);
 		});
 	}
 

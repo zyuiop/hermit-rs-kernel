@@ -51,6 +51,7 @@ use core::ops::Range;
 use align_address::Align;
 use free_list::{PageLayout, PageRange};
 use hermit_sync::{Lazy, RawInterruptTicketMutex};
+use x86_64::structures::paging::PageTableFlags;
 pub use memory_addresses::{PhysAddr, VirtAddr};
 use talc::{ErrOnOom, Span, Talc, Talck};
 
@@ -291,7 +292,7 @@ pub(crate) fn print_information() {
 }
 
 /// Maps a given physical address and size in virtual space and returns address.
-#[cfg(feature = "pci")]
+#[cfg(any(feature = "pci", feature = "amd-sev"))]
 pub(crate) fn device_map(
 	physical_address: PhysAddr,
 	size: usize,
@@ -302,9 +303,6 @@ pub(crate) fn device_map(
 	use crate::arch::mm::paging::PageTableEntryFlags;
 	#[cfg(target_arch = "x86_64")]
 	use crate::arch::mm::paging::PageTableEntryFlagsExt;
-
-	let size = size.align_up(BasePageSize::SIZE as usize);
-	let count = size / BasePageSize::SIZE as usize;
 
 	let mut flags = PageTableEntryFlags::empty();
 	flags.normal();
@@ -318,10 +316,22 @@ pub(crate) fn device_map(
 		flags.device();
 	}
 
-	let layout = PageLayout::from_size(size).unwrap();
-	let page_range = PageAlloc::allocate(layout).unwrap();
-	let virtual_address = VirtAddr::from(page_range.start());
-	arch::mm::paging::map::<BasePageSize>(virtual_address, physical_address, count, flags);
+    map_with_flags(physical_address, size, flags)
+}
+
+#[cfg(any(feature = "pci", feature = "amd-sev"))]
+pub(crate) fn map_with_flags(
+    physical_address: PhysAddr,
+    size: usize,
+    flags: PageTableFlags
+) -> VirtAddr {
+    let size = size.align_up(BasePageSize::SIZE as usize);
+    let count = size / BasePageSize::SIZE as usize;
+
+    let layout = PageLayout::from_size(size).unwrap();
+    let page_range = PageAlloc::allocate(layout).unwrap();
+    let virtual_address = VirtAddr::from(page_range.start());
+    arch::mm::paging::map::<BasePageSize>(virtual_address, physical_address, count, flags);
 
 	virtual_address
 }

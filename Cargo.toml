@@ -1,3 +1,5 @@
+cargo-features = ["profile-rustflags"]
+
 [package]
 name = "hermit-kernel"
 version = "0.12.0"
@@ -37,6 +39,7 @@ harness = false
 default = ["kernel-stack", "pci", "pci-ids", "acpi", "fsgsbase", "smp", "tcp", "dhcpv4", "virtio-fs", "virtio-net", "virtio-vsock"]
 acpi = []
 alloc-stats = ["talc/counters"]
+amd-sev = ["dep:aes-gcm"]
 common-os = []
 dhcpv4 = ["net", "smoltcp", "smoltcp/proto-dhcpv4", "smoltcp/socket-dhcpv4"]
 dns = ["net", "smoltcp", "smoltcp/socket-dns"]
@@ -140,9 +143,27 @@ talc = { version = "4" }
 thiserror = { version = "2", default-features = false }
 time = { version = "0.3", default-features = false }
 volatile = "0.6"
-zerocopy = { version = "0.8", default-features = false }
+zerocopy = { version = "0.8", default-features = false, features = ["derive"] }
 uhyve-interface = "0.1.4"
 bitfield-struct = "0.12.1"
+aes-gcm = { version = "0.10", optional = true, default-features = false, features = ["aes", "alloc"] }
+static_assertions = "1.1.0"
+
+[profile.dev.package.polyval]
+# There is a weird compiler bug for target x86_64-unknown-none... We must therefore use the soft implementation.
+rustflags = ["--cfg", "polyval_force_soft"]
+
+[profile.release.package.polyval]
+# There is a weird compiler bug for target x86_64-unknown-none... We must therefore use the soft implementation.
+rustflags = ["--cfg", "polyval_force_soft"]
+
+[profile.dev.package.aes]
+# There is a weird compiler bug for target x86_64-unknown-none... We must therefore use the soft implementation.
+rustflags = ["--cfg", "aes_force_soft"]
+
+[profile.release.package.aes]
+# There is a weird compiler bug for target x86_64-unknown-none... We must therefore use the soft implementation.
+rustflags = ["--cfg", "aes_force_soft"]
 
 [dependencies.smoltcp]
 version = "0.12"
@@ -167,7 +188,7 @@ features = [
 free-list = { version = "0.3", features = ["x86_64"] }
 raw-cpuid = "11"
 uart_16550 = "0.4"
-x86_64 = "0.15"
+x86_64 = { version = "0.15", features = ["memory_encryption"] }
 memory_addresses = { version = "0.2.3", default-features = false, features = [
 	"x86_64",
 	"conv-x86_64",

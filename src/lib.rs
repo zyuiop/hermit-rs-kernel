@@ -43,6 +43,9 @@ extern crate log;
 #[cfg(not(target_os = "none"))]
 #[macro_use]
 extern crate std;
+#[cfg(feature = "amd-sev")]
+#[macro_use]
+extern crate static_assertions;
 
 #[cfg(feature = "smp")]
 use core::hint::spin_loop;
@@ -146,6 +149,12 @@ extern "C" fn initd(_arg: usize) {
 	#[cfg(feature = "shell")]
 	shell::init();
 
+	#[cfg(all(feature = "amd-sev", target_arch = "x86_64"))]
+	{
+		use crate::arch::x86_64::kernel::amd_sev;
+		amd_sev::sev_guest_ioctl::init();
+	}
+
 	// Get the application arguments and environment variables.
 	#[cfg(not(test))]
 	let (argc, argv, environ) = syscalls::get_application_parameters();
@@ -187,6 +196,10 @@ fn synch_all_cores() {
 /// Entry Point of Hermit for the Boot Processor
 #[cfg(target_os = "none")]
 fn boot_processor_main() -> ! {
+	// Initialize the AMD-SEV module immediately
+	#[cfg(all(target_arch = "x86_64", feature = "amd-sev"))]
+	arch::x86_64::kernel::amd_sev::enable_sev();
+
 	// Initialize the kernel and hardware.
 	hermit_sync::Lazy::force(&console::CONSOLE);
 	unsafe {

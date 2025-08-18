@@ -1,4 +1,6 @@
 use alloc::collections::VecDeque;
+#[cfg(feature = "amd-sev")]
+use crate::arch::kernel::amd_sev;
 
 use embedded_io::{ErrorType, Read, ReadReady, Write};
 use hermit_sync::{InterruptTicketMutex, Lazy};
@@ -12,11 +14,48 @@ use crate::errno::Errno;
 #[cfg(feature = "pci")]
 const SERIAL_IRQ: u8 = 4;
 
+enum SerialInner {
+	Uart(uart_16550::SerialPort),
+	#[cfg(feature = "amd-sev")]
+	SevUart(amd_sev::paravirt_uart::SerialPort)
+}
+
+impl SerialInner {
+	fn new(port: u16) -> Self {
+		#[cfg(feature = "amd-sev")]
+		{
+			let mut serial = unsafe { amd_sev::paravirt_uart::SerialPort::new(port) };
+			serial.init();
+			return Self::SevUart(serial)
+		}
+
+		let mut uart = unsafe { uart_16550::SerialPort::new(port) };
+		uart.init();
+		Self::Uart(uart)
+	}
+
+	fn send(&mut self, data: u8) {
+		match self {
+			SerialInner::Uart(inner) => inner.send(data),
+			#[cfg(feature = "amd-sev")]
+			SerialInner::SevUart(inner) => inner.send(data)
+		}
+	}
+
+	fn try_receive(&mut self) -> Option<u8> {
+		match self {
+			SerialInner::Uart(inner) => inner.try_receive().ok(),
+			#[cfg(feature = "amd-sev")]
+			SerialInner::SevUart(inner) => inner.try_receive().ok()
+		}
+	}
+}
+
 static UART_DEVICE: Lazy<InterruptTicketMutex<UartDevice>> =
 	Lazy::new(|| unsafe { InterruptTicketMutex::new(UartDevice::new()) });
 
 struct UartDevice {
-	pub uart: uart_16550::SerialPort,
+	pub uart: SerialInner,
 	pub buffer: VecDeque<u8>,
 }
 
@@ -27,11 +66,9 @@ impl UartDevice {
 			.serial_port_base
 			.unwrap()
 			.get();
-		let mut uart = unsafe { uart_16550::SerialPort::new(base) };
-		uart.init();
 
 		Self {
-			uart,
+			uart: SerialInner::new(base),
 			buffer: VecDeque::new(),
 		}
 	}
@@ -81,7 +118,7 @@ impl Write for SerialDevice {
 pub(crate) fn get_serial_handler() -> (InterruptLine, fn()) {
 	fn serial_handler() {
 		let mut guard = UART_DEVICE.lock();
-		if let Ok(c) = guard.uart.try_receive() {
+		if let Some(c) = guard.uart.try_receive() {
 			guard.buffer.push_back(c);
 		}
 

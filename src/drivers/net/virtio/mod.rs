@@ -664,7 +664,9 @@ impl VirtioNetDriver<Uninit> {
 			// Multiqueue support
 			| virtio::net::F::MQ
 			// Checksum calculation can partially be offloaded to the device
-			| virtio::net::F::CSUM;
+			| virtio::net::F::CSUM
+			// Access to data is limited or translated
+			| virtio::net::F::ACCESS_PLATFORM;
 
 		// Currently the driver does NOT support the features below.
 		// In order to provide functionality for these, the driver
@@ -695,6 +697,9 @@ impl VirtioNetDriver<Uninit> {
 			// Set feature set in device config fur future use.
 			self.dev_cfg.features = negotiated_features;
 		} else {
+			error!(
+				"Feature negotiation failed - driver lacks required feature. Aborting!"
+			);
 			return Err(VirtioNetError::FailFeatureNeg(self.dev_cfg.dev_id));
 		}
 
