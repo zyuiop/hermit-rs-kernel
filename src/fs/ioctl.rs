@@ -18,15 +18,15 @@ use crate::io;
 /// so linux compatibility is an intended and explicit goal here.
 #[bitfield(u32)]
 pub struct IoCtlCall {
-	call_nr: u8,
+	pub call_nr: u8,
 
-	call_type: u8,
+	pub call_type: u8,
 
 	#[bits(2, from = IoCtlDirection::from_bits_truncate, default = IoCtlDirection::empty())]
-	call_dir: IoCtlDirection,
+	pub call_dir: IoCtlDirection,
 
 	#[bits(14)]
-	call_size: u16,
+	pub call_size: u16,
 }
 
 bitflags! {
