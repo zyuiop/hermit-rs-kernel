@@ -29,6 +29,18 @@ unsafe impl FrameAllocator<Size4KiB> for FrameAlloc {
 	}
 }
 
+unsafe impl FrameAllocator<Size2MiB> for FrameAlloc {
+	fn allocate_frame(&mut self) -> Option<PhysFrame<Size2MiB>> {
+		let size = usize::try_from(Size2MiB::SIZE).unwrap();
+		let layout = PageLayout::from_size_align(size, size).unwrap();
+
+		let range = FrameAlloc::allocate(layout).ok()?;
+
+		let phys_addr = PhysAddr::from(range.start());
+		Some(PhysFrame::from_start_address(phys_addr.into()).unwrap())
+	}
+}
+
 pub trait PageTableEntryFlagsExt {
 	fn device(&mut self) -> &mut Self;
 
