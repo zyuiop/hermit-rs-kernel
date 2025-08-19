@@ -124,8 +124,8 @@ impl PageStateChangeEntry {
             )
         }
     }
-    pub fn new_for_frame(
-        physical_address: PhysFrame,
+    pub fn new_for_frame<S: PageSize>(
+        physical_address: PhysFrame<S>,
         operation: PageStateChangeOperation
     ) -> PageStateChangeEntry {
         let size = physical_address.size();
