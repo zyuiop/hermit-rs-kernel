@@ -10,9 +10,7 @@ pub use x86_64::structures::paging::PageTableFlags as PageTableEntryFlags;
 use x86_64::structures::paging::frame::PhysFrameRange;
 use x86_64::structures::paging::mapper::{MapToError, MappedFrame, TranslateResult, UnmapError};
 use x86_64::structures::paging::page::PageRange;
-use x86_64::structures::paging::{
-	FrameAllocator, Mapper, OffsetPageTable, Page, PageTable, PhysFrame, Size4KiB, Translate,
-};
+use x86_64::structures::paging::{FrameAllocator, Mapper, OffsetPageTable, Page, PageTable, PhysFrame, Size2MiB, Size4KiB, Translate};
 
 use crate::arch::x86_64::kernel::processor;
 use crate::arch::x86_64::mm::{PhysAddr, VirtAddr};
@@ -23,6 +21,18 @@ unsafe impl FrameAllocator<Size4KiB> for FrameAlloc {
 	fn allocate_frame(&mut self) -> Option<PhysFrame<Size4KiB>> {
 		let size = usize::try_from(Size4KiB::SIZE).unwrap();
 		let layout = PageLayout::from_size(size).unwrap();
+
+		let range = FrameAlloc::allocate(layout).ok()?;
+
+		let phys_addr = PhysAddr::from(range.start());
+		Some(PhysFrame::from_start_address(phys_addr.into()).unwrap())
+	}
+}
+
+unsafe impl FrameAllocator<Size2MiB> for FrameAlloc {
+	fn allocate_frame(&mut self) -> Option<PhysFrame<Size2MiB>> {
+		let size = usize::try_from(Size2MiB::SIZE).unwrap();
+		let layout = PageLayout::from_size_align(size, size).unwrap();
 
 		let range = FrameAlloc::allocate(layout).ok()?;
 

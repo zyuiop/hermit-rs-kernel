@@ -284,7 +284,7 @@ impl AllocatedVmsa {
             .union(PageTableEntryFlags::NO_EXECUTE | PageTableEntryFlags::WRITABLE);
         flags.set_encrypted(true);
 
-        let virt = mm::map_with_flags(phys, size, flags);
+        let virt = mm::device_map_with_flags(phys, size, flags);
         (virt, phys)
     }
 

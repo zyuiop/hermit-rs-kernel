@@ -67,6 +67,7 @@ use crate::arch::mm::paging::HugePageSize;
 pub use crate::arch::mm::paging::virtual_to_physical;
 use crate::arch::mm::paging::{BasePageSize, LargePageSize, PageSize};
 use crate::{arch, env};
+use crate::mm::device_alloc::DeviceAlloc;
 
 #[cfg(target_os = "none")]
 #[global_allocator]
@@ -344,11 +345,11 @@ pub(crate) fn device_map(
 		flags.device();
 	}
 
-    map_with_flags(physical_address, size, flags)
+    device_map_with_flags(physical_address, size, flags)
 }
 
 #[cfg(any(feature = "pci", feature = "amd-sev"))]
-pub(crate) fn map_with_flags(
+pub(crate) fn device_map_with_flags(
     physical_address: PhysAddr,
     size: usize,
     flags: PageTableFlags
@@ -356,9 +357,13 @@ pub(crate) fn map_with_flags(
     let size = size.align_up(BasePageSize::SIZE as usize);
     let count = size / BasePageSize::SIZE as usize;
 
-    let layout = PageLayout::from_size(size).unwrap();
-    let page_range = PageAlloc::allocate(layout).unwrap();
-    let virtual_address = VirtAddr::from(page_range.start());
+	let virtual_address = if device_alloc::ENABLE_PHYS_OFFSET {
+		DeviceAlloc.virt_addr_from(physical_address)
+	} else {
+		let layout = PageLayout::from_size(size).unwrap();
+		let page_range = PageAlloc::allocate(layout).unwrap();
+		VirtAddr::from(page_range.start())
+	};
     arch::mm::paging::map::<BasePageSize>(virtual_address, physical_address, count, flags);
 
 	virtual_address
