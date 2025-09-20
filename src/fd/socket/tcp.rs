@@ -204,11 +204,7 @@ impl ObjectInterface for Socket {
 						if socket.can_recv() {
 							Poll::Ready(
 								socket
-									.recv(|data| {
-										let len = core::cmp::min(buffer.len(), data.len());
-										buffer[..len].copy_from_slice(&data[..len]);
-										(len, len)
-									})
+									.recv_slice(buffer)
 									.map_err(|_| Errno::Io),
 							)
 						} else if state == tcp::State::CloseWait {
