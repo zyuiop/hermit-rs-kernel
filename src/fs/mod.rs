@@ -3,6 +3,7 @@ pub(crate) mod fuse;
 pub mod ioctl;
 mod mem;
 mod uhyve;
+mod random;
 
 use alloc::borrow::ToOwned;
 use alloc::boxed::Box;
@@ -352,6 +353,11 @@ pub(crate) fn init() {
 		.unwrap()
 		.mkdir("/proc", AccessPermission::from_bits(0o777).unwrap())
 		.expect("Unable to create /proc");
+	FILESYSTEM
+		.get()
+		.unwrap()
+		.mkdir("/dev", AccessPermission::from_bits(0o777).unwrap())
+		.expect("Unable to create /dev");
 
 	if let Ok(mut file) = File::create("/proc/version") {
 		if write!(file, "HermitOS version {VERSION} # UTC {UTC_BUILT_TIME}").is_err() {
@@ -370,6 +376,7 @@ pub(crate) fn init() {
 	if crate::env::is_uhyve() {
 		uhyve::init();
 	}
+    random::init();
 }
 
 pub fn create_file(name: &str, data: &'static [u8], mode: AccessPermission) -> io::Result<()> {
