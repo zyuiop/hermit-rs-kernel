@@ -23,6 +23,7 @@ use crate::fs::uhyve::UhyveFileHandle;
 #[cfg(feature = "virtio-fs")]
 use crate::fs::virtio_fs::{VirtioFsDirectoryHandle, VirtioFsFileHandle};
 use crate::fs::{DirectoryReader, FileAttr, SeekWhence};
+use crate::fs::random::RandomDevice;
 use crate::io;
 
 pub(crate) enum Fd {
@@ -54,6 +55,7 @@ pub(crate) enum Fd {
 	DirectoryReader(DirectoryReader),
 	#[cfg(feature = "uhyve")]
 	UhyveFileHandle(UhyveFileHandle),
+	RandomDevice(RandomDevice)
 }
 
 macro_rules! fd_from {
@@ -103,6 +105,7 @@ fd_from! {
 	DirectoryReader(DirectoryReader),
 	#[cfg(feature = "uhyve")]
 	UhyveFileHandle(UhyveFileHandle),
+	RandomDevice(RandomDevice),
 }
 
 impl ObjectInterface for Fd {
@@ -136,6 +139,7 @@ impl ObjectInterface for Fd {
 			Self::DirectoryReader(fd) => fd,
 			#[cfg(feature = "uhyve")]
 			Self::UhyveFileHandle(fd) => fd,
+			Self::RandomDevice(fd) => fd,
 		} {
 			async fn poll(&self, event: PollEvent) -> io::Result<PollEvent>;
 			async fn read(&self, buf: &mut [u8]) -> io::Result<usize>;

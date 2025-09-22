@@ -4,6 +4,7 @@ pub(crate) mod uhyve;
 #[cfg(feature = "virtio-fs")]
 pub(crate) mod virtio_fs;
 pub mod ioctl;
+pub mod random;
 
 use alloc::borrow::ToOwned;
 #[cfg(any(feature = "uhyve", feature = "virtio-fs"))]
@@ -317,6 +318,11 @@ pub(crate) fn init() {
 	root_filesystem
 		.mkdir("/proc", AccessPermission::from_bits(0o777).unwrap())
 		.expect("Unable to create /proc");
+	FILESYSTEM
+		.get()
+		.unwrap()
+		.mkdir("/dev", AccessPermission::from_bits(0o777).unwrap())
+		.expect("Unable to create /dev");
 
 	FILESYSTEM.set(root_filesystem).unwrap();
 
@@ -337,6 +343,7 @@ pub(crate) fn init() {
 	if crate::env::is_uhyve() {
 		uhyve::init();
 	}
+    random::init();
 }
 
 pub fn create_file(name: &str, data: &'static [u8], mode: AccessPermission) -> io::Result<()> {
