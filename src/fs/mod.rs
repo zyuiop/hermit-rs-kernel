@@ -321,6 +321,9 @@ pub(crate) fn init() {
 	root_filesystem
 		.mkdir("/dev", AccessPermission::from_bits(0o777).unwrap())
 		.expect("Unable to create /dev");
+	root_filesystem
+		.mkdir("/dev/shm", AccessPermission::from_bits(0o777).unwrap())
+		.expect("Unable to create /dev/shm");
 
 	FILESYSTEM.set(root_filesystem).unwrap();
 
