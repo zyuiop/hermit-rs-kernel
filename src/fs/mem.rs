@@ -632,19 +632,23 @@ impl VfsNode for MemDirectory {
 		block_on(
 			async {
 				if let Some(component) = components.pop() {
-					if components.is_empty()
-						&& let Some(node) = self.inner.read().await.get(component)
-					{
-						return node.get_file_attributes();
-					}
+					let node_name = String::from(component);
+					let node = self.inner.read().await;
+					let node = node.get(&node_name);
 
-					if let Some(directory) = self.inner.read().await.get(component) {
-						directory.traverse_lstat(components)
+					let Some(node) = node else {
+						return Err(Errno::Noent);
+					};
+
+					if node.get_kind() == NodeKind::File && !components.is_empty() {
+						Err(Errno::Notdir)
+					} else if components.is_empty() {
+						node.get_file_attributes()
 					} else {
-						Err(Errno::Badf)
+						node.traverse_lstat(components)
 					}
 				} else {
-					Err(Errno::Nosys)
+					Err(Errno::Noent)
 				}
 			},
 			None,
@@ -655,16 +659,20 @@ impl VfsNode for MemDirectory {
 		block_on(
 			async {
 				if let Some(component) = components.pop() {
-					if components.is_empty()
-						&& let Some(node) = self.inner.read().await.get(component)
-					{
-						return node.get_file_attributes();
-					}
+					let node_name = String::from(component);
+					let node = self.inner.read().await;
+					let node = node.get(&node_name);
 
-					if let Some(directory) = self.inner.read().await.get(component) {
-						directory.traverse_stat(components)
+					let Some(node) = node else {
+						return Err(Errno::Noent);
+					};
+
+					if node.get_kind() == NodeKind::File && !components.is_empty() {
+						Err(Errno::Notdir)
+					} else if components.is_empty() {
+						node.get_file_attributes()
 					} else {
-						Err(Errno::Badf)
+						node.traverse_stat(components)
 					}
 				} else {
 					Err(Errno::Nosys)
