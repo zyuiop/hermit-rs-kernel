@@ -358,6 +358,11 @@ pub(crate) fn init() {
 		.unwrap()
 		.mkdir("/dev", AccessPermission::from_bits(0o777).unwrap())
 		.expect("Unable to create /dev");
+	FILESYSTEM
+		.get()
+		.unwrap()
+		.mkdir("/dev/shm", AccessPermission::from_bits(0o777).unwrap())
+		.expect("Unable to create /dev/shm");
 
 	if let Ok(mut file) = File::create("/proc/version") {
 		if write!(file, "HermitOS version {VERSION} # UTC {UTC_BUILT_TIME}").is_err() {
