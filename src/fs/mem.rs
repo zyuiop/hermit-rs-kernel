@@ -8,7 +8,7 @@ use alloc::sync::Arc;
 use alloc::vec::Vec;
 use core::marker::PhantomData;
 use core::mem::{MaybeUninit, offset_of};
-
+use core::sync::atomic::{AtomicU64, Ordering};
 use align_address::Align;
 use async_lock::{Mutex, RwLock};
 use async_trait::async_trait;
@@ -35,6 +35,8 @@ impl RomFileInner {
 		}
 	}
 }
+
+static VFS_INO_NUM: AtomicU64 = AtomicU64::new(10_000);
 
 struct RomFileInterface {
 	/// Position within the file
@@ -308,6 +310,7 @@ impl RomFile {
 			st_atim: t,
 			st_mtim: t,
 			st_ctim: t,
+			st_ino: VFS_INO_NUM.fetch_add(1, Ordering::AcqRel),
 			..Default::default()
 		};
 
@@ -363,6 +366,9 @@ impl RamFile {
 			st_atim: t,
 			st_mtim: t,
 			st_ctim: t,
+			st_nlink: 1,
+			st_blksize: 4096,
+			st_ino: VFS_INO_NUM.fetch_add(1, Ordering::AcqRel),
 			..Default::default()
 		};
 
