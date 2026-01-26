@@ -920,13 +920,15 @@ impl VirtioNetDriver<Uninit> {
 		// - the num_queues is found in the ComCfg struct of the device and defines the maximal number
 		// of supported queues.
 		if self.dev_cfg.features.contains(virtio::net::F::MQ) {
-			if self
+			if (self
 				.dev_cfg
 				.raw
 				.as_ptr()
 				.max_virtqueue_pairs()
 				.read()
-				.to_ne() * 2 >= MAX_NUM_VQ
+				// We should not need this, as standard compliant drivers should never give a number higher than 0x8000
+				// But for some reason under SEV we do get high numbers .-.
+				.to_ne() & 0x7fff) * 2 >= MAX_NUM_VQ
 			{
 				self.num_vqs = MAX_NUM_VQ;
 			} else {
