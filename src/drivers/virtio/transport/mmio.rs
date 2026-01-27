@@ -15,7 +15,8 @@ use virtio::mmio::{
 use virtio::{DeviceStatus, le32};
 use volatile::access::ReadOnly;
 use volatile::{VolatilePtr, VolatileRef};
-
+#[cfg(feature = "amd-sev")]
+use crate::arch::kernel::amd_sev::ghcb_protocol::protocol_mmio::{ghcb_mmio_write, mmio_read_volatile, mmio_write_volatile};
 use crate::drivers::InterruptLine;
 #[cfg(feature = "virtio-console")]
 use crate::drivers::console::VirtioConsoleDriver;
@@ -28,6 +29,7 @@ use crate::drivers::virtio::error::VirtioError;
 use crate::drivers::virtio::{ControlRegisters, VirtioIdExt};
 #[cfg(feature = "virtio-vsock")]
 use crate::drivers::vsock::VirtioVsockDriver;
+use crate::mm::device_alloc::DeviceAlloc;
 
 pub struct VqCfgHandler<'a> {
 	vq_index: u16,
@@ -251,8 +253,13 @@ impl NotifCfg {
 pub struct NotifCtrl {
 	/// Indicates if VIRTIO_F_NOTIFICATION_DATA has been negotiated
 	f_notif_data: bool,
+
+	#[cfg(not(feature = "amd-sev"))]
 	/// Where to write notification
 	notif_addr: *mut le32,
+
+	#[cfg(feature = "amd-sev")]
+	notif_addr: PhysAddr
 }
 
 // FIXME: make `notif_addr` implement `Send` instead
@@ -262,6 +269,9 @@ impl NotifCtrl {
 	/// Returns a new controller. By default MSI-X capabilities and VIRTIO_F_NOTIFICATION_DATA
 	/// are disabled.
 	pub fn new(notif_addr: *mut le32) -> Self {
+		#[cfg(feature = "amd-sev")]
+		let notif_addr = DeviceAlloc.phys_addr_from(notif_addr);
+
 		NotifCtrl {
 			f_notif_data: false,
 			notif_addr,
@@ -281,6 +291,10 @@ impl NotifCtrl {
 		};
 
 		unsafe {
+			#[cfg(feature = "amd-sev")]
+			mmio_write_volatile(notification_data, self.notif_addr).unwrap();
+
+			#[cfg(not(feature = "amd-sev"))]
 			self.notif_addr.write_volatile(notification_data);
 		}
 	}
@@ -292,24 +306,62 @@ impl NotifCtrl {
 ///
 /// Provides a safe API for Raw structure and allows interaction with the device via
 /// the structure.
+
+#[cfg(not(feature = "amd-sev"))]
 pub struct IsrStatus {
 	// FIXME: integrate into device register struct
 	raw: VolatileRef<'static, DeviceRegisters>,
 }
 
+#[cfg(feature = "amd-sev")]
+pub struct IsrStatus {
+	// FIXME: integrate into device register struct
+	interrupt_status: PhysAddr,
+	interrupt_ack: PhysAddr
+}
+
 impl IsrStatus {
+	#[cfg(not(feature = "amd-sev"))]
 	pub fn new(registers: VolatileRef<'_, DeviceRegisters>) -> Self {
 		let raw =
 			unsafe { mem::transmute::<VolatileRef<'_, _>, VolatileRef<'static, _>>(registers) };
 		Self { raw }
 	}
 
+	#[cfg(feature = "amd-sev")]
+	pub fn new(mut registers: VolatileRef<'_, DeviceRegisters>) -> Self {
+		Self {
+			interrupt_status: DeviceAlloc.phys_addr_from(registers.as_mut_ptr().interrupt_status().as_raw_ptr().as_ptr()),
+			interrupt_ack: DeviceAlloc.phys_addr_from(registers.as_mut_ptr().interrupt_ack().as_raw_ptr().as_ptr()),
+		}
+	}
+
+    #[cfg(not(feature = "amd-sev"))]
 	pub fn acknowledge(&mut self) -> InterruptStatus {
 		let ptr = self.raw.as_mut_ptr();
 		let status = ptr.interrupt_status().read();
 		ptr.interrupt_ack().write(status);
 		status
 	}
+
+    #[allow(dead_code)]
+    #[cfg(feature = "amd-sev")]
+    pub fn acknowledge(&mut self) -> InterruptStatus {
+        let status = self.is_queue_interrupt();
+        unsafe {
+            mmio_write_volatile(status, self.interrupt_ack).expect("failed to read isr status");
+        }
+		status
+    }
+
+    #[allow(dead_code)]
+    #[cfg(feature = "amd-sev")]
+    pub fn acknowledge(&mut self) {
+        let status = self.is_queue_interrupt();
+        unsafe {
+            mmio_write_volatile(status, self.interrupt_ack).expect("failed to read isr status")
+        }
+    }
 }
 
 pub(crate) enum VirtioDriver {
