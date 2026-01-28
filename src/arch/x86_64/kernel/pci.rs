@@ -129,13 +129,12 @@ mod pcie {
 
 	use memory_addresses::{PhysAddr, VirtAddr};
 	use pci_types::{ConfigRegionAccess, PciAddress};
-
+    use x86_64::structures::paging::PageSize;
     use super::{PCI_MAX_BUS_NUMBER, PciConfigRegion};
-	use crate::arch::mm::paging::{
-		self, LargePageSize, PageTableEntryFlags, PageTableEntryFlagsExt,
-	};
+	use crate::arch::mm::paging::{self, BasePageSize};
 	use crate::kernel::acpi;
 	use crate::mm::device_alloc::DeviceAlloc;
+	use crate::mm::device_map;
 
 	pub fn init_pcie() -> bool {
 		let Some(table) = acpi::get_mcfg_table() else {
@@ -256,18 +255,14 @@ mod pcie {
 		let phys_addr = PhysAddr::new(bus_entry.base_address);
 		let virt_addr = VirtAddr::from_ptr(DeviceAlloc.ptr_from::<()>(phys_addr));
 		if paging::virtual_to_physical(virt_addr) != Some(phys_addr) {
-			debug!("Mapping PCIe memory");
-			let flags = {
-				let mut flags = PageTableEntryFlags::empty();
-				flags.normal().writable().execute_disable();
-				flags
-			};
-			paging::map::<LargePageSize>(
-				virt_addr,
+			let new_virt_addr = device_map(
 				phys_addr,
-				usize::from(bus_entry.bus_number_end) + 1,
-				flags,
+				(usize::from(bus_entry.bus_number_end) + 1) * BasePageSize::SIZE as usize,
+				true,
+				true,
+				false
 			);
+			assert_eq!(virt_addr, new_virt_addr);
 		}
 
 		super::scan_bus(
