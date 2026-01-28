@@ -17,6 +17,8 @@ use crate::mm::{FrameAlloc, PageRangeAllocator, virtualmem};
 /// Allocations from this allocator always correspond to contiguous physical memory.
 pub struct DeviceAlloc;
 
+pub const ENABLE_PHYS_OFFSET: bool = cfg!(any(careful, feature = "amd-sev"));
+
 static DEVICE_FREE_LIST: InterruptTicketMutex<DeviceFreeList> =
 	InterruptTicketMutex::new(DeviceFreeList::new());
 
@@ -31,7 +33,7 @@ impl DeviceFreeList {
 		let allocated_frame: PhysFrame<Size2MiB> =
 			FrameAlloc::allocate_frame(&mut FrameAlloc).ok_or_else(|| AllocError)?;
 
-		if cfg!(any(careful, feature = "amd-sev")) {
+		if ENABLE_PHYS_OFFSET {
 			self.map_device_page(allocated_frame);
 		}
 
@@ -140,6 +142,13 @@ impl DeviceAlloc {
 		ptr::with_exposed_provenance_mut(addr)
 	}
 
+	/// Returns a VirtAddr corresponding to `phys_addr`.
+	#[inline]
+	pub fn virt_addr_from(&self, phys_addr: PhysAddr) -> VirtAddr {
+		let addr = phys_addr.as_usize() + self.phys_offset().as_usize();
+		VirtAddr::from(addr)
+	}
+
 	/// Returns the physical address of `ptr`.
 	///
 	/// The address is only correct if `ptr` has been allocated by this allocator.
@@ -154,7 +163,7 @@ impl DeviceAlloc {
 	/// This device allocator expects the complete physical memory to be mapped device-readable at this offset.
 	#[inline]
 	pub fn phys_offset(&self) -> VirtAddr {
-		if cfg!(any(careful, feature = "amd-sev")) {
+		if ENABLE_PHYS_OFFSET {
 			virtualmem::kernel_heap_end().as_u64().div_ceil(4).into()
 		} else {
 			0u64.into()
