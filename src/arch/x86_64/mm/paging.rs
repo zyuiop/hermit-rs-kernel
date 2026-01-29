@@ -103,6 +103,8 @@ impl PageTableEntryFlagsExt for PageTableEntryFlags {
 pub use x86_64::structures::paging::{
 	PageSize, Size1GiB as HugePageSize, Size2MiB as LargePageSize, Size4KiB as BasePageSize,
 };
+#[cfg(feature = "amd-sev")]
+use crate::arch::kernel::amd_sev;
 
 /// Returns a mapping of the physical memory where physical address is equal to the virtual address (no offset)
 pub unsafe fn identity_mapped_page_table() -> OffsetPageTable<'static> {
@@ -210,6 +212,12 @@ where
 	let flags = {
 		let mut flags = PageTableEntryFlags::empty();
 		flags.normal().writable().execute_disable();
+
+		#[cfg(feature = "amd-sev")]
+		{
+			flags.set_encrypted(true);
+		}
+
 		flags
 	};
 
@@ -228,12 +236,40 @@ where
 pub fn identity_map<S>(phys_addr: PhysAddr)
 where
 	S: PageSize + fmt::Debug,
+	for<'a> OffsetPageTable<'a>: Mapper<S>
+{
+	let mut flags =
+		PageTableEntryFlags::PRESENT
+            | PageTableEntryFlags::WRITABLE
+			| PageTableEntryFlags::NO_EXECUTE;
+
+	#[cfg(feature = "amd-sev")]
+	{
+		flags.set_encrypted(true);
+	}
+
+	identity_map_with_flags::<S>(phys_addr, flags)
+}
+
+#[cfg(feature = "amd-sev")]
+pub fn identity_map_decrypted<S>(phys_addr: PhysAddr)
+where
+	S: PageSize + fmt::Debug,
+	for<'a> OffsetPageTable<'a>: Mapper<S>
+{
+	identity_map_with_flags::<S>(phys_addr,
+	 PageTableEntryFlags::PRESENT
+		| PageTableEntryFlags::WRITABLE
+		| PageTableEntryFlags::NO_EXECUTE)
+}
+
+
+pub fn identity_map_with_flags<S>(phys_addr: PhysAddr, flags: PageTableEntryFlags)
+where
+	S: PageSize + fmt::Debug,
 	for<'a> OffsetPageTable<'a>: Mapper<S>,
 {
 	let frame = PhysFrame::<S>::from_start_address(phys_addr.into()).unwrap();
-	let flags = PageTableEntryFlags::PRESENT
-		| PageTableEntryFlags::WRITABLE
-		| PageTableEntryFlags::NO_EXECUTE;
 	let mapper_result =
 		unsafe { identity_mapped_page_table().identity_map(frame, flags, &mut FrameAlloc) };
 
