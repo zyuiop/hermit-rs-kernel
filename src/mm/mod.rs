@@ -57,6 +57,7 @@ pub use memory_addresses::{PhysAddr, VirtAddr};
 use talc::TalcLock;
 #[cfg(target_os = "none")]
 use talc::source::Manual;
+use x86_64::structures::paging::PageTableFlags;
 
 pub use self::page_range_alloc::{PageRangeAllocator, PageRangeBox};
 pub use self::physicalmem::{FrameAlloc, FrameBox};
@@ -319,7 +320,7 @@ pub(crate) fn print_information() {
 }
 
 /// Maps a given physical address and size in virtual space and returns address.
-#[cfg(feature = "pci")]
+#[cfg(any(feature = "pci", feature = "amd-sev"))]
 pub(crate) fn device_map(
 	physical_address: PhysAddr,
 	size: usize,
@@ -330,9 +331,6 @@ pub(crate) fn device_map(
 	use crate::arch::mm::paging::PageTableEntryFlags;
 	#[cfg(target_arch = "x86_64")]
 	use crate::arch::mm::paging::PageTableEntryFlagsExt;
-
-	let size = size.align_up(BasePageSize::SIZE as usize);
-	let count = size / BasePageSize::SIZE as usize;
 
 	let mut flags = PageTableEntryFlags::empty();
 	flags.normal();
@@ -345,6 +343,18 @@ pub(crate) fn device_map(
 	if no_cache {
 		flags.device();
 	}
+
+	device_map_with_flags(physical_address, size, flags)
+}
+
+#[cfg(any(feature = "pci", feature = "amd-sev"))]
+pub(crate) fn device_map_with_flags(
+	physical_address: PhysAddr,
+	size: usize,
+	flags: PageTableFlags,
+) -> VirtAddr {
+	let size = size.align_up(BasePageSize::SIZE as usize);
+	let count = size / BasePageSize::SIZE as usize;
 
 	let layout = PageLayout::from_size(size).unwrap();
 	let page_range = PageAlloc::allocate(layout).unwrap();

@@ -33,6 +33,10 @@ use crate::config::*;
 use crate::mm::{PageAlloc, PageBox, PageRangeAllocator};
 use crate::scheduler::CoreId;
 use crate::{arch, env, scheduler};
+#[cfg(feature = "amd-sev")]
+use crate::arch::kernel::amd_sev;
+#[cfg(feature = "amd-sev")]
+use crate::arch::kernel::amd_sev::ghcb_protocol::protocol_ap_creation::snp_ap_create;
 
 /// APIC Location and Status (R/W) See Table 35-2. See Section 10.4.4, Local APIC  Status and Location.
 const IA32_APIC_BASE: Msr = Msr::new(0x1b);
@@ -830,6 +834,17 @@ pub fn boot_application_processors() {
 			let current_processor_count = arch::get_processor_count();
 
 			// Send an INIT IPI.
+			#[cfg(feature = "amd-sev")]
+			{
+				snp_ap_create(apic_id as u32, SMP_BOOT_CODE_ADDRESS);
+
+				while current_processor_count == arch::get_processor_count() {
+					spin_loop();
+				}
+
+				continue
+			}
+
 			local_apic_write(
 				IA32_X2APIC_ICR,
 				destination

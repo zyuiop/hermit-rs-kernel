@@ -131,10 +131,12 @@ mod pcie {
 	use pci_types::{ConfigRegionAccess, PciAddress};
     use x86_64::structures::paging::PageSize;
     use super::{PCI_MAX_BUS_NUMBER, PciConfigRegion};
-	use crate::arch::mm::paging::{self, BasePageSize};
+	use crate::arch::mm::paging::{
+		self, BasePageSize, PageTableEntryFlags, PageTableEntryFlagsExt,
+	};
 	use crate::kernel::acpi;
 	use crate::mm::device_alloc::DeviceAlloc;
-	use crate::mm::device_map;
+	use crate::mm::{device_map_with_flags};
 
 	pub fn init_pcie() -> bool {
 		let Some(table) = acpi::get_mcfg_table() else {
@@ -255,12 +257,12 @@ mod pcie {
 		let phys_addr = PhysAddr::new(bus_entry.base_address);
 		let virt_addr = VirtAddr::from_ptr(DeviceAlloc.ptr_from::<()>(phys_addr));
 		if paging::virtual_to_physical(virt_addr) != Some(phys_addr) {
-			let new_virt_addr = device_map(
+			let new_virt_addr = device_map_with_flags(
 				phys_addr,
 				(usize::from(bus_entry.bus_number_end) + 1) * BasePageSize::SIZE as usize,
-				true,
-				true,
-				false
+				PageTableEntryFlags::PRESENT |
+					PageTableEntryFlags::WRITABLE |
+					PageTableEntryFlags::NO_EXECUTE
 			);
 			assert_eq!(virt_addr, new_virt_addr);
 		}
