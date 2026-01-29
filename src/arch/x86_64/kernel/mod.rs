@@ -38,6 +38,9 @@ pub(crate) mod systemtime;
 #[cfg(feature = "vga")]
 pub mod vga;
 
+#[cfg(feature = "amd-sev")]
+pub(crate) mod amd_sev;
+
 pub fn get_ram_address() -> PhysAddr {
 	PhysAddr::new(env::boot_info().hardware_info.phys_addr_range.start)
 }
@@ -84,6 +87,9 @@ pub fn args() -> Option<&'static str> {
 /// Real Boot Processor initialization as soon as we have put the first Welcome message on the screen.
 #[cfg(target_os = "none")]
 pub fn boot_processor_init() {
+	#[cfg(feature = "amd-sev")]
+	info!("Compiled with SEV feature, and SEV is enabled");
+
 	processor::detect_features();
 	processor::configure();
 
@@ -94,18 +100,26 @@ pub fn boot_processor_init() {
 
 	crate::mm::init();
 	crate::mm::print_information();
+
 	CoreLocal::get().add_irq_counter();
 	gdt::add_current_core();
 	interrupts::load_idt();
-	pic::init();
+	interrupts::install();
 
+	info!("Interrupts installed!");
+
+	#[cfg(feature = "amd-sev")]
+	amd_sev::post_init();
+
+	pic::init(); // init PIC after interrupts have been installed (VC handler for AMD SEV)
+
+    processor::post_configure();
 	processor::detect_frequency();
-	crate::logging::KERNEL_LOGGER.set_time(true);
 	processor::print_information();
 	debug!("Cr0 = {:?}", Cr0::read());
 	debug!("Cr4 = {:?}", Cr4::read());
-	interrupts::install();
 	systemtime::init();
+	crate::logging::KERNEL_LOGGER.set_time(true);
 
 	if !is_uhyve() {
 		#[cfg(feature = "acpi")]
@@ -119,22 +133,31 @@ pub fn boot_processor_init() {
 	apic::init();
 	scheduler::install_timer_handler();
 	finish_processor_init();
+
+	info!("Main processor initialized!")
 }
 
 /// Application Processor initialization
 #[cfg(all(target_os = "none", feature = "smp"))]
 pub fn application_processor_init() {
 	CoreLocal::install();
-	processor::configure();
 	gdt::add_current_core();
 	interrupts::load_idt();
-	if processor::supports_x2apic() {
-		apic::init_x2apic();
-	}
-	apic::init_local_apic();
+
+	#[cfg(feature = "amd-sev")]
+	// Early in the AP boot process, we allocate the GHCB and enable it so that our calls and handler can work
+	amd_sev::init_application_processor();
+
+	processor::configure(); // CHECK?// Not OK: contains an instruction that reads CPUID, which is not allowed until a VC handler is registered
+    if processor::supports_x2apic() {
+        apic::init_x2apic();
+    }	apic::init_local_apic();
+	processor::post_configure();
 	debug!("Cr0 = {:?}", Cr0::read());
 	debug!("Cr4 = {:?}", Cr4::read());
 	finish_processor_init();
+
+	info!("Application processor {} initialized!", core_id());
 }
 
 fn finish_processor_init() {

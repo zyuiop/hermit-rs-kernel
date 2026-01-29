@@ -44,7 +44,7 @@ pub(crate) mod device_alloc;
 mod page_range_alloc;
 mod physicalmem;
 mod virtualmem;
-#[cfg(careful)]
+#[cfg(any(careful, feature = "amd-sev"))]
 mod device_free_list;
 
 use core::alloc::Layout;
@@ -59,6 +59,7 @@ pub use memory_addresses::{PhysAddr, VirtAddr};
 use talc::TalcLock;
 #[cfg(target_os = "none")]
 use talc::source::Manual;
+use x86_64::structures::paging::PageTableFlags;
 
 pub use self::page_range_alloc::{PageRangeAllocator, PageRangeBox};
 pub use self::physicalmem::{FrameAlloc, FrameBox};
@@ -322,7 +323,7 @@ pub(crate) fn print_information() {
 }
 
 /// Maps a given physical address and size in virtual space and returns address.
-#[cfg(feature = "pci")]
+#[cfg(any(feature = "pci", feature = "amd-sev"))]
 pub(crate) fn device_map(
 	physical_address: PhysAddr,
 	size: usize,
@@ -333,9 +334,6 @@ pub(crate) fn device_map(
 	use crate::arch::mm::paging::PageTableEntryFlags;
 	#[cfg(target_arch = "x86_64")]
 	use crate::arch::mm::paging::PageTableEntryFlagsExt;
-
-	let size = size.align_up(BasePageSize::SIZE as usize);
-	let count = size / BasePageSize::SIZE as usize;
 
 	let mut flags = PageTableEntryFlags::empty();
 	flags.normal();
@@ -349,9 +347,25 @@ pub(crate) fn device_map(
 		flags.device();
 	}
 
-	let layout = PageLayout::from_size(size).unwrap();
-	let page_range = PageAlloc::allocate(layout).unwrap();
-	let virtual_address = VirtAddr::from(page_range.start());
+	device_map_with_flags(physical_address, size, flags)
+}
+
+#[cfg(any(feature = "pci", feature = "amd-sev"))]
+pub(crate) fn device_map_with_flags(
+	physical_address: PhysAddr,
+	size: usize,
+	flags: PageTableFlags,
+) -> VirtAddr {
+	let size = size.align_up(BasePageSize::SIZE as usize);
+	let count = size / BasePageSize::SIZE as usize;
+
+	let virtual_address = if device_alloc::ENABLE_PHYS_OFFSET {
+		DeviceAlloc.virt_addr_from(physical_address)
+	} else {
+		let layout = PageLayout::from_size(size).unwrap();
+		let page_range = PageAlloc::allocate(layout).unwrap();
+		VirtAddr::from(page_range.start())
+	};
 	arch::mm::paging::map::<BasePageSize>(virtual_address, physical_address, count, flags);
 
 	virtual_address

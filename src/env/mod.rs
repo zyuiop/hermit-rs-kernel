@@ -77,6 +77,18 @@ pub fn rsdp() -> Option<core::num::NonZero<usize>> {
 	core::num::NonZero::new(rsdp)
 }
 
+/// Returns the EFI CC Blob physical address if available.
+#[cfg(all(target_arch = "x86_64", feature = "amd-sev"))]
+pub fn cc_blob() -> Option<core::num::NonZero<usize>> {
+	let cc_blob = fdt()?
+		.find_node("/hermit,cc_blob")?
+		.reg()?
+		.next()?
+		.starting_address
+		.addr();
+	core::num::NonZero::new(cc_blob)
+}
+
 pub fn fdt_args() -> Option<&'static str> {
 	fdt().and_then(|fdt| fdt.chosen().bootargs())
 }

@@ -13,7 +13,7 @@ use crate::mm::{PageRangeAllocator, virtualmem};
 /// Allocations from this allocator always correspond to contiguous physical memory.
 pub struct DeviceAlloc;
 
-pub const ENABLE_PHYS_OFFSET: bool = cfg!(careful);
+pub const ENABLE_PHYS_OFFSET: bool = cfg!(any(careful, feature = "amd-sev"));
 
 unsafe impl Allocator for DeviceAlloc {
 	fn allocate(&self, layout: Layout) -> Result<NonNull<[u8]>, AllocError> {
@@ -22,7 +22,7 @@ unsafe impl Allocator for DeviceAlloc {
 		let frame_layout = PageLayout::from_size(size).unwrap();
 
 		let frame_range = cfg_select! {
-			careful => super::device_free_list::DeviceFreeList::allocate(frame_layout),
+			any(careful, feature = "amd-sev") => super::device_free_list::DeviceFreeList::allocate(frame_layout),
 			_ => crate::mm::FrameAlloc::allocate(frame_layout),
 		}
 		.map_err(|_| AllocError)?;
@@ -42,7 +42,7 @@ unsafe impl Allocator for DeviceAlloc {
 
 		unsafe {
 			cfg_select! {
-				careful => super::device_free_list::DeviceFreeList::deallocate(range),
+				any(careful, feature = "amd-sev") => super::device_free_list::DeviceFreeList::deallocate(range),
 				_ => crate::mm::FrameAlloc::deallocate(range),
 			};
 		}
