@@ -928,7 +928,9 @@ pub unsafe extern "C" fn sys_setsockopt(
 	let option = SocketOption::from_level_optname(level, optname);
 	let Some(option) = option else {
 		return if cfg!(feature = "syscall-fake-values") {
-			warn!("setsockopt: unsupported option level={level:x} optname={optname:x}, faking success.");
+			warn!(
+				"setsockopt: unsupported option level={level:x} optname={optname:x}, faking success."
+			);
 			0
 		} else {
 			-i32::from(Errno::Inval)
@@ -972,7 +974,9 @@ pub unsafe extern "C" fn sys_getsockopt(
 
 	let Some(option) = option else {
 		return if cfg!(feature = "syscall-fake-values") {
-			warn!("getsockopt: unsupported option level={level:x} optname={optname:x}, faking success.");
+			warn!(
+				"getsockopt: unsupported option level={level:x} optname={optname:x}, faking success."
+			);
 			*optlen = 0;
 			0
 		} else {

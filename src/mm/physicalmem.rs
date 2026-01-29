@@ -7,9 +7,7 @@ use free_list::{FreeList, PageLayout, PageRange, PageRangeError};
 use hermit_sync::InterruptTicketMutex;
 use memory_addresses::{PhysAddr, VirtAddr};
 
-#[cfg(target_arch = "x86_64")]
-use crate::arch::mm::paging::PageTableEntryFlagsExt;
-use crate::arch::mm::paging::{self, HugePageSize, LargePageSize, PageSize, PageTableEntryFlags};
+use crate::arch::mm::paging::{self, HugePageSize, LargePageSize, PageSize};
 use crate::env;
 use crate::mm::device_alloc::DeviceAlloc;
 use crate::mm::{PageRangeAllocator, PageRangeBox};
@@ -75,7 +73,7 @@ pub type IdentityPageSize = crate::arch::mm::paging::BasePageSize;
 pub type IdentityPageSize = crate::arch::mm::paging::HugePageSize;
 
 #[cfg(target_arch = "x86_64")]
-pub type IdentityPageSize = crate::arch::mm::paging::LargePageSize;
+pub type IdentityPageSize = LargePageSize;
 
 pub unsafe fn map_frame_range(frame_range: PageRange) {
 	let start = frame_range

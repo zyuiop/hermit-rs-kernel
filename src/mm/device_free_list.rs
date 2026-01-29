@@ -7,6 +7,10 @@ use memory_addresses::VirtAddr;
 use x86_64::PhysAddr;
 use x86_64::structures::paging::{PageSize, PhysFrame, Size2MiB};
 
+#[cfg(feature = "amd-sev")]
+use crate::arch::kernel::amd_sev::ghcb_protocol::protocol_page_state_change::{
+	PageStateChangeEntry, PageStateChangeOperation, change_page_states,
+};
 use crate::arch::mm::paging;
 use crate::arch::mm::paging::{PageTableEntryFlags, PageTableEntryFlagsExt};
 use crate::mm::device_alloc::DeviceAlloc;
@@ -86,7 +90,9 @@ impl PageRangeAllocator for DeviceFreeList {
 	}
 
 	unsafe fn deallocate(range: PageRange) {
-		DEVICE_FREE_LIST.lock().deallocate(range).unwrap();
+		unsafe {
+			DEVICE_FREE_LIST.lock().deallocate(range).unwrap();
+		}
 
 		// OPTIONAL: if we have too much memory in the list we may return it to the physical free list
 		// In this case, we MUST unmap it/remap it as identity
@@ -109,7 +115,9 @@ impl DeviceFreeList {
 			.map(|start| PhysFrame::from_start_address(PhysAddr::new(start as u64)).unwrap());
 
 		for frame in frames {
-			Self::map_claim_frame(frame)?;
+			unsafe {
+				Self::map_claim_frame(frame)?;
+			}
 		}
 
 		Ok(())
@@ -128,7 +136,15 @@ impl DeviceFreeList {
 			(Size2MiB::SIZE / IdentityPageSize::SIZE) as usize,
 		);
 
-		// 2. Add an entry at the device offset
+		// 2. Update the RMP
+		#[cfg(feature = "amd-sev")]
+		change_page_states(&[PageStateChangeEntry::new_for_frame(
+			frame,
+			PageStateChangeOperation::PageAssignShared,
+		)])
+		.expect("failed to update RMP");
+
+		// 3. Add an entry at the device offset
 		let flags = {
 			let mut flags = PageTableEntryFlags::empty();
 			flags.normal().writable().execute_disable().device();

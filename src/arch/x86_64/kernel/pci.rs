@@ -132,7 +132,7 @@ mod pcie {
 
     use super::{PCI_MAX_BUS_NUMBER, PciConfigRegion};
 	use crate::arch::mm::paging::{
-		self, LargePageSize, PageTableEntryFlags, PageTableEntryFlagsExt,
+		self, BasePageSize, PageTableEntryFlags, PageTableEntryFlagsExt,
 	};
 	use crate::kernel::acpi;
 	use crate::mm::device_alloc::DeviceAlloc;
@@ -262,7 +262,7 @@ mod pcie {
 				flags.normal().writable().execute_disable();
 				flags
 			};
-			paging::map::<LargePageSize>(
+			paging::map::<BasePageSize>(
 				virt_addr,
 				phys_addr,
 				usize::from(bus_entry.bus_number_end) + 1,
