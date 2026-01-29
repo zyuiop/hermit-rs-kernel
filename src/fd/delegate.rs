@@ -56,7 +56,9 @@ pub(crate) enum Fd {
 	DirectoryReader(DirectoryReader),
 	#[cfg(feature = "uhyve")]
 	UhyveFileHandle(UhyveFileHandle),
-	RandomDevice(RandomDevice)
+	RandomDevice(RandomDevice),
+	#[cfg(feature = "amd-sev")]
+	SevGuest(crate::arch::kernel::amd_sev::sev_guest_ioctl::SevGuestIoCtl)
 }
 
 macro_rules! fd_from {
@@ -107,6 +109,8 @@ fd_from! {
 	#[cfg(feature = "uhyve")]
 	UhyveFileHandle(UhyveFileHandle),
 	RandomDevice(RandomDevice),
+	#[cfg(feature = "amd-sev")]
+	SevGuest(crate::arch::kernel::amd_sev::sev_guest_ioctl::SevGuestIoCtl),
 }
 
 impl ObjectInterface for Fd {
@@ -141,6 +145,8 @@ impl ObjectInterface for Fd {
 			#[cfg(feature = "uhyve")]
 			Self::UhyveFileHandle(fd) => fd,
 			Self::RandomDevice(fd) => fd,
+			#[cfg(feature = "amd-sev")]
+			Self::SevGuest(fd) => fd,
 		} {
 			async fn poll(&self, event: PollEvent) -> io::Result<PollEvent>;
 			async fn read(&self, buf: &mut [u8]) -> io::Result<usize>;

@@ -1,4 +1,6 @@
 use alloc::collections::VecDeque;
+#[cfg(feature = "amd-sev")]
+use crate::arch::kernel::amd_sev;
 
 use embedded_io::{ErrorType, Read, ReadReady, Write};
 use hermit_sync::{InterruptTicketMutex, Lazy};
@@ -14,11 +16,76 @@ use crate::errno::Errno;
 #[cfg(feature = "pci")]
 const SERIAL_IRQ: u8 = 4;
 
+enum SerialInner {
+	Uart(Uart16550<PioBackend>),
+	#[cfg(feature = "amd-sev")]
+	SevUart(amd_sev::paravirt_uart::SerialPort)
+}
+
+impl SerialInner {
+}
+
+impl SerialInner {
+	fn new(port: u16) -> Self {
+		#[cfg(feature = "amd-sev")]
+		{
+			let mut serial = unsafe { amd_sev::paravirt_uart::SerialPort::new(port) };
+			serial.init();
+			return Self::SevUart(serial)
+		}
+
+		let mut uart = unsafe { Uart16550::new_port(port).unwrap() };
+		uart.init(Config::default()).ok();
+		Self::Uart(uart)
+	}
+
+	fn write(&mut self, buf: &[u8]) -> Result<usize, Errno> {
+		match self {
+			SerialInner::Uart(inner) => Ok(inner.write(buf)?),
+			#[cfg(feature = "amd-sev")]
+			SerialInner::SevUart(inner) => {
+				for byte in buf {
+					inner.send(*byte);
+				}
+				Ok(buf.len())
+			}
+		}
+	}
+
+	fn read(&mut self, out: &mut [u8]) -> Result<usize, Errno> {
+		match self {
+			SerialInner::Uart(inner) => Ok(inner.read(out)?),
+			#[cfg(feature = "amd-sev")]
+			SerialInner::SevUart(inner) => {
+				let mut index = 0;
+				while index < out.len() {
+					let Some(byte) = inner.try_receive().ok() else {
+						break;
+					};
+					out[index] = byte;
+					index += 1;
+				}
+				Ok(index)
+			}
+		}
+	}
+
+	fn read_ready(&mut self) -> Result<bool, Errno> {
+		match self {
+			SerialInner::Uart(inner) => Ok(inner.read_ready()?),
+			#[cfg(feature = "amd-sev")]
+			SerialInner::SevUart(inner) => {
+				Ok(inner.is_read_ready())
+			}
+		}
+	}
+}
+
 static UART_DEVICE: Lazy<InterruptTicketMutex<UartDevice>> =
 	Lazy::new(|| unsafe { InterruptTicketMutex::new(UartDevice::new()) });
 
 struct UartDevice {
-	pub uart: Uart16550<PioBackend>,
+	pub uart: SerialInner,
 	pub buffer: VecDeque<u8>,
 }
 
@@ -29,14 +96,9 @@ impl UartDevice {
 			.serial_port_base
 			.unwrap()
 			.get();
-		let mut uart = unsafe { Uart16550::new_port(base).unwrap() };
-		uart.init(Config::default()).ok();
-		// Once we have a fallback destination for output,
-		// we should log any error above and run
-		// `test_loopback` and `check_connected` here.
 
 		Self {
-			uart,
+			uart: SerialInner::new(base),
 			buffer: VecDeque::new(),
 		}
 	}
