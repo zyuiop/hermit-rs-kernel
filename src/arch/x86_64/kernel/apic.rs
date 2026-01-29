@@ -33,6 +33,8 @@ use crate::config::*;
 use crate::mm::{PageAlloc, PageBox, PageRangeAllocator};
 use crate::scheduler::CoreId;
 use crate::{arch, env, scheduler};
+#[cfg(feature = "amd-sev")]
+use crate::arch::kernel::amd_sev::ghcb_protocol::protocol_ap_creation::snp_ap_create;
 
 /// APIC Location and Status (R/W) See Table 35-2. See Section 10.4.4, Local APIC  Status and Location.
 const IA32_APIC_BASE: Msr = Msr::new(0x1b);
@@ -821,7 +823,6 @@ pub fn boot_application_processors() {
 				*((SMP_BOOT_CODE_ADDRESS + SMP_BOOT_CODE_OFFSET_CPU_ID).as_mut_ptr()) =
 					core_id_to_boot;
 			}
-			let destination = u64::from(apic_id) << 32;
 
 			debug!("Waking up CPU {core_id_to_boot} with Local APIC ID {apic_id}");
 			init_next_processor_variables();
@@ -830,29 +831,39 @@ pub fn boot_application_processors() {
 			let current_processor_count = arch::get_processor_count();
 
 			// Send an INIT IPI.
-			local_apic_write(
-				IA32_X2APIC_ICR,
-				destination
-					| APIC_ICR_LEVEL_TRIGGERED
-					| APIC_ICR_LEVEL_ASSERT
-					| APIC_ICR_DELIVERY_MODE_INIT,
-			);
-			processor::udelay(200);
+			#[cfg(feature = "amd-sev")]
+			{
+				snp_ap_create(apic_id as u32, SMP_BOOT_CODE_ADDRESS);
+			}
 
-			local_apic_write(
-				IA32_X2APIC_ICR,
-				destination | APIC_ICR_LEVEL_TRIGGERED | APIC_ICR_DELIVERY_MODE_INIT,
-			);
-			processor::udelay(10000);
+			#[cfg(not(feature = "amd-sev"))]
+			{
 
-			// Send a STARTUP IPI.
-			local_apic_write(
-				IA32_X2APIC_ICR,
-				destination
-					| APIC_ICR_DELIVERY_MODE_STARTUP
-					| ((SMP_BOOT_CODE_ADDRESS.as_u64()) >> 12),
-			);
-			debug!("Waiting for it to respond");
+				let destination = u64::from(apic_id) << 32;
+				crate::arch::x86_64::kernel::apic::local_apic_write(
+					crate::arch::x86_64::kernel::apic::IA32_X2APIC_ICR,
+					destination
+						| crate::arch::x86_64::kernel::apic::APIC_ICR_LEVEL_TRIGGERED
+						| crate::arch::x86_64::kernel::apic::APIC_ICR_LEVEL_ASSERT
+						| crate::arch::x86_64::kernel::apic::APIC_ICR_DELIVERY_MODE_INIT,
+				);
+				processor::udelay(200);
+
+				crate::arch::x86_64::kernel::apic::local_apic_write(
+					crate::arch::x86_64::kernel::apic::IA32_X2APIC_ICR,
+					destination | crate::arch::x86_64::kernel::apic::APIC_ICR_LEVEL_TRIGGERED | crate::arch::x86_64::kernel::apic::APIC_ICR_DELIVERY_MODE_INIT,
+				);
+				processor::udelay(10000);
+
+				// Send a STARTUP IPI.
+				crate::arch::x86_64::kernel::apic::local_apic_write(
+					crate::arch::x86_64::kernel::apic::IA32_X2APIC_ICR,
+					destination
+						| crate::arch::x86_64::kernel::apic::APIC_ICR_DELIVERY_MODE_STARTUP
+						| ((crate::arch::x86_64::kernel::apic::SMP_BOOT_CODE_ADDRESS.as_u64()) >> 12),
+				);
+				debug!("Waiting for it to respond");
+			}
 
 			// Wait until the application processor has finished initializing.
 			// It will indicate this by counting up cpu_online.

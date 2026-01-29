@@ -1,6 +1,8 @@
 use alloc::boxed::Box;
 use alloc::sync::Arc;
 
+#[cfg(feature = "amd-sev")]
+use crate::arch::kernel::amd_sev::sev_guest_ioctl::SevGuestIoCtl;
 use crate::errno::Errno;
 use crate::fd::random_file::RandomFile;
 use crate::fd::{AccessPermission, Fd, OpenOption};
@@ -32,6 +34,10 @@ impl VfsNode for DevDirectory {
 		match path {
 			"urandom" | "random" => Ok(Arc::new(async_lock::RwLock::new(Fd::RandomFile(
 				RandomFile,
+			)))),
+			#[cfg(feature = "amd-sev")]
+			"sev-guest" => Ok(Arc::new(async_lock::RwLock::new(Fd::SevGuest(
+				SevGuestIoCtl,
 			)))),
 			_ => Err(Errno::Noent),
 		}

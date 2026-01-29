@@ -43,7 +43,7 @@ pub fn add_current_core() {
 	// Allocate all ISTs for this core.
 	// Every task later gets its own IST, so the IST allocated here is only used by the Idle task.
 	for i in 0..IST_ENTRIES {
-		let size = if i == 0 {
+		let size = if i < 2 {
 			IST_SIZE
 		} else {
 			BasePageSize::SIZE as usize

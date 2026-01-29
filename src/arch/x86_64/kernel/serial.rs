@@ -1,4 +1,6 @@
 use alloc::collections::VecDeque;
+#[cfg(feature = "amd-sev")]
+use crate::arch::kernel::amd_sev;
 
 use embedded_io::{ErrorType, Read, ReadReady, Write};
 use hermit_sync::{InterruptTicketMutex, Lazy};
@@ -18,7 +20,10 @@ static UART_DEVICE: Lazy<InterruptTicketMutex<UartDevice>> =
 	Lazy::new(|| unsafe { InterruptTicketMutex::new(UartDevice::new()) });
 
 struct UartDevice {
+	#[cfg(not(feature = "amd-sev"))]
 	pub uart: Uart16550<PioBackend>,
+	#[cfg(feature = "amd-sev")]
+	pub uart: amd_sev::paravirt_uart::SerialPort,
 	pub buffer: VecDeque<u8>,
 }
 
@@ -29,8 +34,14 @@ impl UartDevice {
 			.serial_port_base
 			.unwrap()
 			.get();
-		let mut uart = unsafe { Uart16550::new_port(base).unwrap() };
-		uart.init(Config::default()).ok();
+
+		let mut uart = unsafe {
+			cfg_select! {
+				feature = "amd-sev" => amd_sev::paravirt_uart::SerialPort::new(base),
+				_ => Uart16550::new_port(base).unwrap(),
+			}
+		};
+		uart.init(Config::default()).unwrap();
 		// Once we have a fallback destination for output,
 		// we should log any error above and run
 		// `test_loopback` and `check_connected` here.
