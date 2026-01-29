@@ -789,7 +789,9 @@ impl VirtioNetDriver<Uninit> {
 			// Checksum calculation can partially be offloaded to the device
 			| virtio::net::F::CSUM
 			// Partially checksummed frames can be received
-			| virtio::net::F::GUEST_CSUM;
+			| virtio::net::F::GUEST_CSUM
+			// Access to data is limited or translated
+			| virtio::net::F::ACCESS_PLATFORM;
 
 		// Currently the driver does NOT support the features below.
 		// In order to provide functionality for these, the driver
