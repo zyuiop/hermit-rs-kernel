@@ -683,6 +683,13 @@ fn __set_oneshot_timer(wakeup_time: Option<u64>) {
 		// (see processor::get_timer_ticks).
 		let tsc_deadline = wt * (u64::from(processor::get_frequency()));
 
+		unsafe {
+			let current_deadline = IA32_TSC_DEADLINE.read();
+			if current_deadline < tsc_deadline && current_deadline > processor::get_timestamp() {
+				return;
+			}
+		}
+
 		// Enable the APIC Timer in TSC-Deadline Mode and let it start by writing to the respective MSR.
 		local_apic_write(
 			IA32_X2APIC_LVT_TIMER,
@@ -708,6 +715,11 @@ fn __set_oneshot_timer(wakeup_time: Option<u64>) {
 		CALIBRATED_COUNTER_VALUE.get().unwrap() * ticks,
 		u64::from(u32::MAX),
 	);
+
+	let cur_cnt = local_apic_read(IA32_X2APIC_CUR_COUNT) as u64;
+	if cur_cnt > 0 && cur_cnt < init_count {
+		return;
+	}
 
 	// Enable the APIC Timer in One-Shot Mode and let it start by setting the initial counter value.
 	local_apic_write(IA32_X2APIC_LVT_TIMER, u64::from(TIMER_INTERRUPT_NUMBER));
