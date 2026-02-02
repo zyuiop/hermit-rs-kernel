@@ -18,7 +18,12 @@ use hermit_sync::{OnceCell, SpinMutex, without_interrupts};
 use memory_addresses::{AddrRange, PhysAddr, VirtAddr};
 #[cfg(feature = "smp")]
 use x86_64::registers::control::Cr3;
+
+#[cfg(not(feature = "amd-sev"))]
 use x86_64::registers::model_specific::Msr;
+
+#[cfg(feature = "amd-sev")]
+use crate::arch::kernel::amd_sev::ghcb_protocol::protocol_msr::Msr;
 
 use super::interrupts::IDT;
 use crate::arch::x86_64::kernel::CURRENT_STACK_ADDRESS;
