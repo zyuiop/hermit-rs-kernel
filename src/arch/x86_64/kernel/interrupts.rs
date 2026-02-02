@@ -169,6 +169,8 @@ pub(crate) fn install() {
 	};
 
 	IRQ_NAMES.lock().insert(7, "FPU");
+	#[cfg(feature = "amd-sev")]
+	IRQ_NAMES.lock().insert(29, "VC-Handler");
 }
 
 pub(crate) fn install_handlers() {
