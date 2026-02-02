@@ -1,3 +1,4 @@
+use core::arch::asm;
 use x86_64::instructions::interrupts::without_interrupts;
 use crate::arch::kernel::amd_sev::ghcb_protocol::ghcb::{Ghcb, GhcbU64Field};
 use crate::arch::kernel::amd_sev::ghcb_protocol::{checked_vmgexit, GhcbExitCode, GhcbProtocolError};
@@ -5,6 +6,28 @@ use crate::arch::x86_64::kernel::amd_sev::ghcb_protocol::allocated_ghcb::with_gh
 
 const INFO1_READ: u64 = 0;
 const INFO1_WRITE: u64 = 1;
+
+#[derive(Debug)]
+#[repr(transparent)]
+pub struct Msr(u32);
+
+impl Msr {
+	/// Create an instance from a register.
+	#[inline]
+	pub const fn new(reg: u32) -> Self {
+		Self(reg)
+	}
+
+	#[inline]
+	pub unsafe fn read(&self) -> u64 {
+		ghcb_rdmsr(self.0)
+	}
+
+	#[inline]
+	pub unsafe fn write(&mut self, value: u64) {
+		ghcb_wrmsr(self.0, value)
+	}
+}
 
 pub unsafe fn ghcb_rdmsr(msr: u32) -> u64 {
 	without_interrupts(|| {
