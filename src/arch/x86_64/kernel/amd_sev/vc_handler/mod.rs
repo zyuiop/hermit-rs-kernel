@@ -10,6 +10,7 @@ use crate::arch::x86_64::kernel::amd_sev::ghcb_protocol::allocated_ghcb::with_gh
 use crate::arch::x86_64::kernel::amd_sev::ghcb_protocol::ghcb::Ghcb;
 use crate::arch::x86_64::kernel::amd_sev::ghcb_protocol::checked_vmgexit;
 use crate::arch::x86_64::kernel::amd_sev::instruction_parser::InstructionData;
+use crate::arch::x86_64::kernel::core_local::increment_irq_counter;
 
 mod handler_cpuid;
 mod handler_ioio;
@@ -122,6 +123,7 @@ extern "C" fn vmm_interrupt_exception_inner(
     stack_frame: &mut InterruptStackFrame
 ) {
     debug!("VC# HANDLE: {stack_frame:#?}");
+    increment_irq_counter(29);
     if stack_frame.error_code == FAULT_RMP_NOT_VALIDATED as u64 {
         handler_rmp_invalid::handle_rmp_invalid(stack_frame);
         return;
