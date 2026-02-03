@@ -45,7 +45,7 @@ pub(crate) mod device_alloc;
 mod device_free_list;
 mod page_range_alloc;
 mod physicalmem;
-mod virtualmem;
+pub(crate) mod virtualmem;
 
 use core::alloc::Layout;
 use core::mem::MaybeUninit;
