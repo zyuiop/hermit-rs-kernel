@@ -70,6 +70,12 @@ pub unsafe fn init() {
 		PageAlloc::init();
 	}
 
+	#[cfg(feature = "amd-sev")]
+	unsafe {
+		paging::walk_make_encrypted();
+	}
+
+
 	#[cfg(feature = "common-os")]
 	{
 		use x86_64::registers::control::Cr3;
