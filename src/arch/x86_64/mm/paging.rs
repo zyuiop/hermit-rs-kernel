@@ -1,20 +1,22 @@
 use core::{fmt, ptr};
 
 use free_list::PageLayout;
-use x86_64::registers::control::{Cr0, Cr0Flags, Cr2, Cr3};
+use hermit_sync::OnceCell;
+use x86_64::instructions::tlb;
+use x86_64::registers::control::{Cr0, Cr0Flags, Cr2, Cr3, Cr3Flags};
 #[cfg(feature = "common-os")]
 use x86_64::registers::segmentation::SegmentSelector;
 pub use x86_64::structures::idt::InterruptStackFrame as ExceptionStackFrame;
 use x86_64::structures::idt::PageFaultErrorCode;
 pub use x86_64::structures::paging::PageTableFlags as PageTableEntryFlags;
 use x86_64::structures::paging::frame::PhysFrameRange;
-use x86_64::structures::paging::mapper::{MapToError, MappedFrame, TranslateResult, UnmapError};
+use x86_64::structures::paging::mapper::{MapToError, MappedFrame, MapperFlush, TranslateResult, UnmapError};
 use x86_64::structures::paging::page::PageRange;
-use x86_64::structures::paging::{FrameAllocator, Mapper, OffsetPageTable, Page, PageTable, PhysFrame, Size2MiB, Size4KiB, Translate};
+use x86_64::structures::paging::{page_table, FrameAllocator, Mapper, OffsetPageTable, Page, PageTable, PageTableFlags, PhysFrame, RecursivePageTable, Size1GiB, Size2MiB, Size4KiB, Translate};
 
 use crate::arch::x86_64::kernel::processor;
 use crate::arch::x86_64::mm::{PhysAddr, VirtAddr};
-use crate::mm::{FrameAlloc, PageRangeAllocator};
+use crate::mm::{FrameAlloc, PageRangeAllocator, kernel_end_address, kernel_start_address, PageAlloc};
 use crate::{env, scheduler};
 
 unsafe impl FrameAllocator<Size4KiB> for FrameAlloc {
@@ -113,6 +115,7 @@ impl PageTableEntryFlagsExt for PageTableEntryFlags {
 pub use x86_64::structures::paging::{
 	PageSize, Size1GiB as HugePageSize, Size2MiB as LargePageSize, Size4KiB as BasePageSize,
 };
+use crate::arch::mm::paging::mapped_page_table_iter::{offset_page_table_iter, MappedPageItem};
 #[cfg(feature = "amd-sev")]
 use crate::arch::kernel::amd_sev;
 
@@ -370,24 +373,6 @@ fn make_p4_writable() {
 
 	let mut pt = unsafe { identity_mapped_page_table() };
 
-	let p4_page = {
-		let (p4_frame, _) = Cr3::read_raw();
-		let p4_addr = x86_64::VirtAddr::new(p4_frame.start_address().as_u64());
-		Page::<Size4KiB>::from_start_address(p4_addr).unwrap()
-	};
-
-	let TranslateResult::Mapped { frame, flags, .. } = pt.translate(p4_page.start_address()) else {
-		unreachable!()
-	};
-
-	let make_writable = || unsafe {
-		let flags = flags | PageTableEntryFlags::WRITABLE;
-		match frame {
-			MappedFrame::Size1GiB(_) => pt.set_flags_p3_entry(p4_page, flags).unwrap().ignore(),
-			MappedFrame::Size2MiB(_) => pt.set_flags_p2_entry(p4_page, flags).unwrap().ignore(),
-			MappedFrame::Size4KiB(_) => pt.update_flags(p4_page, flags).unwrap().ignore(),
-		}
-	};
 
 	unsafe fn without_protect<F, R>(f: F) -> R
 	where
@@ -404,7 +389,52 @@ fn make_p4_writable() {
 		ret
 	}
 
-	unsafe { without_protect(make_writable) }
+	let (p4_frame, _) = Cr3::read_raw();
+	unsafe {
+		without_protect(||
+			make_page_table_writable(&mut pt, p4_frame, 4)
+		);
+	};
+}
+
+unsafe fn make_page_table_writable(page_table: &mut OffsetPageTable<'static>, pt_frame: PhysFrame, level: u8) {
+	let pt_address = page_table.phys_offset() + pt_frame.start_address().as_u64();
+	let pt = unsafe {
+		pt_address.as_ptr::<PageTable>().as_ref().unwrap()
+	};
+
+	// Unmap the page table
+	let TranslateResult::Mapped { frame, flags, .. } = page_table.translate(pt_address) else {
+		unreachable!()
+	};
+
+	#[cfg(feature = "amd-sev")]
+	if !flags.is_encrypted() {
+		panic!("Page table {pt_frame:x?}, is mapped from non encrypted memory!");
+	}
+
+	if !flags.contains(PageTableFlags::WRITABLE) {
+		let flags = flags | PageTableEntryFlags::WRITABLE;
+		let page = Page::<Size4KiB>::containing_address(pt_address);
+		match frame {
+			MappedFrame::Size1GiB(_) => page_table.set_flags_p3_entry(page, flags).unwrap().ignore(),
+			MappedFrame::Size2MiB(_) => page_table.set_flags_p2_entry(page, flags).unwrap().ignore(),
+			MappedFrame::Size4KiB(_) => page_table.update_flags(page, flags).unwrap().ignore(),
+		}
+		warn!("Page table {pt_frame:x?}, was mapped from RO memory!");
+	}
+
+	for entry in pt.iter() {
+		if entry.is_unused() {
+			continue;
+		}
+
+		let is_page_table = level > 1 && !entry.flags().contains(PageTableFlags::HUGE_PAGE);
+		if is_page_table {
+			let phys = entry.frame().unwrap();
+			make_page_table_writable(page_table, phys, level - 1);
+		}
+	}
 }
 
 pub unsafe fn log_page_tables() {
