@@ -1,5 +1,5 @@
 use core::{fmt, ptr};
-
+use core::num::NonZeroUsize;
 use free_list::PageLayout;
 use x86_64::registers::control::{Cr0, Cr0Flags, Cr2, Cr3};
 #[cfg(feature = "common-os")]
@@ -10,11 +10,11 @@ pub use x86_64::structures::paging::PageTableFlags as PageTableEntryFlags;
 use x86_64::structures::paging::frame::PhysFrameRange;
 use x86_64::structures::paging::mapper::{MapToError, MappedFrame, TranslateResult, UnmapError};
 use x86_64::structures::paging::page::PageRange;
-use x86_64::structures::paging::{FrameAllocator, Mapper, OffsetPageTable, Page, PageTable, PageTableFlags, PhysFrame, Size4KiB, Translate};
+use x86_64::structures::paging::{FrameAllocator, Mapper, OffsetPageTable, Page, PageTable, PageTableFlags, PhysFrame, Size1GiB, Size2MiB, Size4KiB, Translate};
 
 use crate::arch::x86_64::kernel::processor;
 use crate::arch::x86_64::mm::{PhysAddr, VirtAddr};
-use crate::mm::{FrameAlloc, PageRangeAllocator};
+use crate::mm::{FrameAlloc, PageAlloc, PageRangeAllocator};
 use crate::{env, scheduler};
 
 unsafe impl FrameAllocator<Size4KiB> for FrameAlloc {
@@ -407,6 +407,124 @@ unsafe fn make_page_table_writable(page_table: &mut OffsetPageTable<'static>, pt
 			unsafe {
 				make_page_table_writable(page_table, phys, level - 1);
 			}
+		}
+	}
+}
+
+#[cfg(feature = "amd-sev")]
+pub unsafe fn walk_make_encrypted() {
+	let mut pt = identity_mapped_page_table();
+
+	let (p4_frame, _) = Cr3::read_raw();
+	walk_make_encrypted_node(&mut pt, p4_frame, 4);
+}
+
+#[cfg(feature = "amd-sev")]
+unsafe fn encrypt_frame<S: PageSize>(page_table: &mut OffsetPageTable<'static>, page: Page<S>) where OffsetPageTable<'static>: Mapper<S> {
+	// Unclear if this is needed at all, it seems we never have un-encrypted heap memory
+	let range = free_list::PageRange::new(
+		crate::mm::virtualmem::kernel_heap_end().as_usize().div_ceil(2),
+		crate::mm::virtualmem::kernel_heap_end().as_usize() + 1,
+	)
+		.unwrap();
+
+	let page_range = free_list::PageRange::new(
+		page.start_address().as_u64() as usize,
+		page.start_address().as_u64() as usize + S::SIZE as usize,
+	).unwrap();
+
+	if !range.contains(page_range) {
+		// Skip page if not in the kernel heap
+		return;
+	}
+
+
+	info!("Encrypting frame {page:x?}");
+	// Temporary allocation to copy the data
+	let layout = PageLayout::from_size_align(S::SIZE as usize, S::SIZE as usize).unwrap();
+
+	let temp_frame_range = FrameAlloc::allocate(layout).expect("could not allocate frame");
+	assert_eq!(temp_frame_range.pages(), NonZeroUsize::new(1).unwrap());
+	let temp_frame = PhysFrame::<S>::from_start_address(
+		x86_64::PhysAddr::new(temp_frame_range.start() as u64)
+	).unwrap();
+
+	let temp_page_range = PageAlloc::allocate(layout).expect("could not allocate page");
+	assert_eq!(temp_page_range.pages(), NonZeroUsize::new(1).unwrap());
+	let temp_page = Page::<S>::from_start_address(
+		x86_64::VirtAddr::new(temp_page_range.start() as u64)
+	).unwrap();
+
+	let mut flags = PageTableFlags::PRESENT | PageTableFlags::WRITABLE;
+	flags.set_encrypted(true);
+
+	let Ok(flush) = page_table.map_to(
+		temp_page,
+		temp_frame,
+		flags,
+		&mut FrameAlloc
+	) else {
+		core::panic!("Failed to map page")
+	};
+	flush.flush();
+
+	// Copy all bytes to encrypted frame
+	unsafe {
+		let source = page.start_address().as_ptr::<u8>();
+		let target = temp_page.start_address().as_mut_ptr::<u8>();
+
+		ptr::copy_nonoverlapping(source, target, S::SIZE as usize);
+	}
+
+	// Update the original mapping
+	let TranslateResult::Mapped { mut flags, .. } = page_table.translate(page.start_address()) else {
+		unreachable!()
+	};
+	flags.set_encrypted(true);
+	page_table.update_flags(page, flags).expect("failed to update flags").flush();
+
+	// Copy the data again
+	unsafe {
+		let source = temp_page.start_address().as_ptr::<u8>();
+		let target = page.start_address().as_mut_ptr::<u8>();
+
+		ptr::copy_nonoverlapping(source, target, S::SIZE as usize);
+	}
+
+	// Drop the mapping and release the frame
+	let Ok(flush) =page_table.unmap(temp_page) else {
+		core::panic!("Failed to unmap page")
+	};
+	flush.1.flush();
+
+	PageAlloc::deallocate(temp_page_range);
+	FrameAlloc::deallocate(temp_frame_range);
+}
+
+#[cfg(feature = "amd-sev")]
+unsafe fn walk_make_encrypted_node(page_table: &mut OffsetPageTable<'static>, pt_frame: PhysFrame, level: u8) {
+	let pt_address = page_table.phys_offset() + pt_frame.start_address().as_u64();
+	let pt = unsafe {
+		pt_address.as_ptr::<PageTable>().as_ref().unwrap()
+	};
+
+	for entry in pt.iter() {
+		if entry.is_unused() {
+			continue;
+		}
+
+		let is_page_table = level > 1 && !entry.flags().contains(PageTableFlags::HUGE_PAGE);
+		if is_page_table {
+			let phys = entry.frame().unwrap();
+			walk_make_encrypted_node(page_table, phys, level - 1);
+		} else if !entry.flags().is_encrypted() {
+			let virt_addr = page_table.phys_offset() + entry.addr().as_u64();
+			match level {
+				3 => encrypt_frame::<Size1GiB>(page_table, Page::from_start_address(virt_addr).unwrap()),
+				2 => encrypt_frame::<Size2MiB>(page_table, Page::from_start_address(virt_addr).unwrap()),
+				1 => encrypt_frame::<Size4KiB>(page_table, Page::from_start_address(virt_addr).unwrap()),
+				_ => unreachable!(),
+			};
 		}
 	}
 }
