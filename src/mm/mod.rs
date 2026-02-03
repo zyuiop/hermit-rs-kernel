@@ -43,7 +43,7 @@
 pub(crate) mod device_alloc;
 mod page_range_alloc;
 mod physicalmem;
-mod virtualmem;
+pub(crate) mod virtualmem;
 #[cfg(any(careful, feature = "amd-sev"))]
 mod device_free_list;
 
