@@ -76,7 +76,9 @@ impl DeviceFreeList {
 		// 3. Add an entry at the device offset
 		let flags = {
 			let mut flags = PageTableEntryFlags::empty();
-			flags.normal().writable().execute_disable().device();
+			// TODO: we should in theory set .device() here, but this disables cache and slows down
+			// operations on shared memory. Maybe we can get away with this???
+			flags.normal().writable().execute_disable();
 			flags
 		};
 
