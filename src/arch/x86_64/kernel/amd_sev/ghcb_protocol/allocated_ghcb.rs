@@ -1,18 +1,22 @@
-use memory_addresses::{PhysAddr, VirtAddr};
-use core::sync::atomic::{AtomicBool, AtomicU8, Ordering};
-use core::ops::{Deref, DerefMut};
-use core::alloc::Layout;
-use hermit_sync::{InterruptOneShotMutex, RwSpinLock};
-use crate::arch::core_local::core_id;
-use crate::arch::kernel::amd_sev::ghcb_protocol::ghcb::{Ghcb, GHCB_SCRATCH_OFFSET};
-use crate::arch::kernel::amd_sev::ghcb_protocol::ghcb_msr::{GhcbMsrRequest, GhcbMsrResponse, GHCB_MSR};
-use crate::arch::kernel::amd_sev::ghcb_protocol::ghcb_msr;
-use crate::arch::kernel::amd_sev::ghcb_protocol::ghcb_msr::ghcb_request_exit;
-use crate::mm;
-use super::error_exit_codes;
 use alloc::boxed::Box;
+use core::alloc::Layout;
 use core::mem;
+use core::ops::{Deref, DerefMut};
+use core::sync::atomic::{AtomicBool, AtomicU8, Ordering};
+
+use hermit_sync::{InterruptOneShotMutex, RwSpinLock};
+use memory_addresses::{PhysAddr, VirtAddr};
 use virtio::pci::CapCfgType::Device;
+use x86_64::structures::paging::{PageSize, Size4KiB};
+
+use super::error_exit_codes;
+use crate::arch::core_local::core_id;
+use crate::arch::kernel::amd_sev::ghcb_protocol::ghcb::{GHCB_SCRATCH_OFFSET, Ghcb};
+use crate::arch::kernel::amd_sev::ghcb_protocol::ghcb_msr;
+use crate::arch::kernel::amd_sev::ghcb_protocol::ghcb_msr::{
+	GHCB_MSR, GhcbMsrRequest, GhcbMsrResponse, ghcb_request_exit,
+};
+use crate::mm;
 use crate::mm::device_alloc::DeviceAlloc;
 
 static EFI_GHCB_LOCK: InterruptOneShotMutex<EfiGhcb> = InterruptOneShotMutex::new(EfiGhcb);
@@ -34,9 +38,9 @@ impl EfiGhcb {
 fn get_current_ghcb_addr() -> u64 {
 	let GhcbMsrResponse::GhcbPhysicalAddress(current_ghcb_addr) = GHCB_MSR.read_state() else {
 		sev_exit!(
-				error_exit_codes::EXIT_GHCB_INVALID_MSR,
-				"Invalid GHCB MSR response"
-			);
+			error_exit_codes::EXIT_GHCB_INVALID_MSR,
+			"Invalid GHCB MSR response"
+		);
 	};
 	current_ghcb_addr.as_u64()
 }
@@ -79,7 +83,8 @@ where
 }
 
 // Allocated GHCB per GPU
-static ALLOCATED_GHCB: [hermit_sync::OnceCell<AllocatedGhcb>; 256] = [const { hermit_sync::OnceCell::new() }; 256];
+static ALLOCATED_GHCB: [hermit_sync::OnceCell<AllocatedGhcb>; 256] =
+	[const { hermit_sync::OnceCell::new() }; 256];
 
 struct AllocatedGhcb {
 	pub physical_address: PhysAddr,
@@ -93,7 +98,7 @@ unsafe impl Send for AllocatedGhcb {}
 struct GhcbLock<'a> {
 	parent: &'a AllocatedGhcb,
 	instance_number: u8,
-	previous_instance: Option<Box<Ghcb>>
+	previous_instance: Option<Box<Ghcb>>,
 }
 
 impl<'a> Drop for GhcbLock<'a> {
@@ -106,9 +111,7 @@ impl<'a> Drop for GhcbLock<'a> {
 
 		if self.instance_number > 1 {
 			if let Some(backup) = self.previous_instance.take() {
-				unsafe {
-					self.parent.inner.write(*backup)
-				}
+				unsafe { self.parent.inner.write(*backup) }
 			} else {
 				ghcb_request_exit(error_exit_codes::EXIT_BACKUP_RESTORE_NOT_IN_ORDER);
 			}
@@ -133,13 +136,18 @@ impl<'a> DerefMut for GhcbLock<'a> {
 
 impl AllocatedGhcb {
 	pub fn new() -> Self {
-		let (ghcb_ptr, physical_address) = DeviceAlloc.allocate_with_physical(Layout::new::<Ghcb>()).expect("failed to allocate memory for GHCB");
-		let backup_ghcb_ptr = unsafe { alloc::alloc::alloc_zeroed(Layout::new::<Ghcb>()) };
+		let (ghcb_ptr, physical_address) = DeviceAlloc
+			.allocate_with_physical(
+				Layout::from_size_align(size_of::<Ghcb>(), Size4KiB::SIZE as usize).unwrap(),
+			)
+			.expect("failed to allocate memory for GHCB");
+
+		info!("Allocated GHCB at {ghcb_ptr:x} (GFN: {physical_address:x})");
 
 		Self {
 			physical_address: physical_address,
 			inner: ghcb_ptr.as_mut_ptr(),
-			instance_count: AtomicU8::new(0)
+			instance_count: AtomicU8::new(0),
 		}
 	}
 
@@ -160,7 +168,7 @@ impl AllocatedGhcb {
 		let lock = GhcbLock {
 			instance_number,
 			parent: self,
-			previous_instance
+			previous_instance,
 		};
 
 		lock
@@ -177,20 +185,38 @@ pub fn init_ghcb_for_core() {
 	let allocated = AllocatedGhcb::new();
 
 	// Register the GHCB
-	let req = GhcbMsrRequest::RegisterGhcbGPA(x86_64::addr::PhysAddr::new(allocated.physical_address.as_u64()));
+	let req = GhcbMsrRequest::RegisterGhcbGPA(x86_64::addr::PhysAddr::new(
+		allocated.physical_address.as_u64(),
+	));
 	unsafe {
-		let resp = GHCB_MSR.send_request_restore(req);
+		let resp = GHCB_MSR.send_request(req);
 
 		let GhcbMsrResponse::RegisterGhcbGPA(rep) = resp else {
-			sev_exit!(error_exit_codes::EXIT_OTHER, "invalid GHCB MSR response code")
+			sev_exit!(
+				error_exit_codes::EXIT_OTHER,
+				"invalid GHCB MSR response code"
+			)
 		};
 
 		if rep.is_none() {
-			sev_exit!(error_exit_codes::EXIT_OTHER, "hypervisor rejected our GHCB address")
+			sev_exit!(
+				error_exit_codes::EXIT_OTHER,
+				"hypervisor rejected our GHCB address"
+			)
 		}
 	}
 
-	allocated.lock().deref_mut().set_protocol_version(ghcb_version);
+	unsafe {
+		// Write the address for next time
+		GHCB_MSR.write_request(GhcbMsrRequest::SetGhcbPhysicalAddress(
+			x86_64::PhysAddr::new(allocated.physical_address.as_u64()),
+		));
+	}
+
+	allocated
+		.lock()
+		.deref_mut()
+		.set_protocol_version(ghcb_version);
 
 	let core_id = core as usize;
 	if let Err(_) = ALLOCATED_GHCB[core_id].set(allocated) {
