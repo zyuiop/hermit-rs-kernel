@@ -4,7 +4,6 @@ mod error;
 use super::protocol_page_state_change::{
     change_page_states, PageStateChangeEntry, PageStateChangeOperation,
 };
-use crate::arch::kernel::amd_sev::decrypted_allocator::SharedPagesAllocator;
 use crate::arch::kernel::amd_sev::ghcb_protocol::GhcbProtocolError;
 use crate::arch::kernel::amd_sev::ghcb_protocol::allocated_ghcb::with_ghcb;
 use crate::arch::kernel::amd_sev::ghcb_protocol::ghcb::Ghcb;
@@ -23,6 +22,7 @@ use x86_64::structures::paging::{PageSize, Size4KiB};
 use zerocopy::{FromBytes, Immutable, IntoBytes};
 use error::GuestProtocolError;
 use crate::arch::kernel::amd_sev::ghcb_protocol::ghcb::GhcbU64Field;
+use crate::mm::device_alloc::DeviceAlloc;
 
 type RequestPageMutex = InterruptSpinMutex<SNPSharedPage>;
 
@@ -174,7 +174,7 @@ impl SNPSharedPage {
     pub fn allocate() -> RequestPageMutex {
         let layout =
             Layout::from_size_align(Size4KiB::SIZE as usize, Size4KiB::SIZE as usize).unwrap();
-        let (ptr, physical_address) = SharedPagesAllocator
+        let (ptr, physical_address) = DeviceAlloc
             .allocate_with_physical(layout)
             .expect("failed to allocate memory for communication page");
 
