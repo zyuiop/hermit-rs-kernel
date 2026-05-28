@@ -4,7 +4,6 @@ use core::ops::{Deref, DerefMut};
 use core::alloc::Layout;
 use hermit_sync::{InterruptOneShotMutex, RwSpinLock};
 use crate::arch::core_local::core_id;
-use crate::arch::kernel::amd_sev::decrypted_allocator::SharedPagesAllocator;
 use crate::arch::kernel::amd_sev::ghcb_protocol::ghcb::{Ghcb, GHCB_SCRATCH_OFFSET};
 use crate::arch::kernel::amd_sev::ghcb_protocol::ghcb_msr::{GhcbMsrRequest, GhcbMsrResponse, GHCB_MSR};
 use crate::arch::kernel::amd_sev::ghcb_protocol::ghcb_msr;
@@ -13,6 +12,8 @@ use crate::mm;
 use super::error_exit_codes;
 use alloc::boxed::Box;
 use core::mem;
+use virtio::pci::CapCfgType::Device;
+use crate::mm::device_alloc::DeviceAlloc;
 
 static EFI_GHCB_LOCK: InterruptOneShotMutex<EfiGhcb> = InterruptOneShotMutex::new(EfiGhcb);
 
@@ -132,7 +133,7 @@ impl<'a> DerefMut for GhcbLock<'a> {
 
 impl AllocatedGhcb {
 	pub fn new() -> Self {
-		let (ghcb_ptr, physical_address) = SharedPagesAllocator.allocate_with_physical(Layout::new::<Ghcb>()).expect("failed to allocate memory for GHCB");
+		let (ghcb_ptr, physical_address) = DeviceAlloc.allocate_with_physical(Layout::new::<Ghcb>()).expect("failed to allocate memory for GHCB");
 		let backup_ghcb_ptr = unsafe { alloc::alloc::alloc_zeroed(Layout::new::<Ghcb>()) };
 
 		Self {

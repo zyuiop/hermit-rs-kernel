@@ -142,6 +142,15 @@ unsafe impl Allocator for DeviceAlloc {
 }
 
 impl DeviceAlloc {
+	#[inline(always)]
+	pub fn allocate_with_physical(&self, layout: Layout) -> Option<(VirtAddr, PhysAddr)> {
+		let ptr = self.allocate(layout).ok()?;
+		let virt_addr = VirtAddr::from_ptr(ptr.as_ptr());
+		let phys_addr = self.phys_addr_from(ptr.as_ptr());
+
+		Some((virt_addr, phys_addr))
+	}
+
 	/// Returns a pointer corresponding to `phys_addr`.
 	#[inline]
 	pub fn ptr_from<T>(&self, phys_addr: PhysAddr) -> *mut T {

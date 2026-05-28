@@ -13,7 +13,6 @@ pub(crate) mod vc_handler;
 pub mod instruction_parser;
 mod opcodes;
 pub(crate) mod paravirt_uart;
-pub mod decrypted_allocator;
 pub(crate) mod sev_guest_ioctl;
 
 mod cc_blob;

@@ -138,7 +138,7 @@ mod pcie {
 	};
 	use crate::kernel::acpi;
 	use crate::mm::device_alloc::DeviceAlloc;
-	use crate::mm::{device_map, device_map_with_flags};
+	use crate::mm::device_map_with_flags;
 
 	pub fn init_pcie() -> bool {
 		let Some(table) = acpi::get_mcfg_table() else {
