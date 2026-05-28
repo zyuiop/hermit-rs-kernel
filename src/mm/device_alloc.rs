@@ -11,6 +11,7 @@ use crate::arch::kernel::amd_sev::ghcb_protocol::protocol_page_state_change::{ch
 use crate::arch::mm::paging;
 use crate::arch::mm::paging::{BasePageSize, PageSize, PageTableEntryFlags, PageTableEntryFlagsExt};
 use crate::mm::{FrameAlloc, PageRangeAllocator, virtualmem};
+use crate::mm::physicalmem::IdentityPageSize;
 
 /// An [`Allocator`] for memory that is used to communicate with devices.
 ///
@@ -33,6 +34,10 @@ impl DeviceFreeList {
 		let allocated_frame: PhysFrame<Size2MiB> =
 			FrameAlloc::allocate_frame(&mut FrameAlloc).ok_or_else(|| AllocError)?;
 
+		if IdentityPageSize::SIZE > Size2MiB::SIZE {
+			panic!("IdentityPageSize is too large!")
+		}
+
 		if ENABLE_PHYS_OFFSET {
 			self.map_device_page(allocated_frame);
 		}
@@ -46,14 +51,14 @@ impl DeviceFreeList {
 
 	fn map_device_page(&self, frame: PhysFrame<Size2MiB>) {
 		// 1. Remove page table entry in identity mapped table for this page
-		paging::unmap::<BasePageSize>(
+		paging::unmap::<IdentityPageSize>(
 			VirtAddr::new(frame.start_address().as_u64()),
-			(Size2MiB::SIZE / BasePageSize::SIZE) as usize,
+			(Size2MiB::SIZE / IdentityPageSize::SIZE) as usize,
 		);
 
 		// 2. Update the RMP
 		#[cfg(feature = "amd-sev")]
-		if BasePageSize::SIZE == Size2MiB::SIZE {
+		if IdentityPageSize::SIZE == Size2MiB::SIZE {
 			change_page_states(&[PageStateChangeEntry::new_for_frame(
 				frame,
 				PageStateChangeOperation::PageAssignShared,
