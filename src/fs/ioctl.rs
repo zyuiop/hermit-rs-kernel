@@ -68,8 +68,10 @@ impl VfsNode for IoCtlNode {
 #[allow(dead_code)]
 pub(crate) fn register_ioctl(path: &str, ioctl_object: Arc<async_lock::RwLock<Fd>>) {
 	assert!(path.starts_with("/"));
-	let mut directory: Vec<&str> = path.split("/").skip(1).collect();
-	directory.pop().unwrap();
+	let path = path.strip_prefix('/').unwrap_or(path);
+	let Some((directory, _)) = path.rsplit_once("/") else {
+		panic!("invalid path for ioctl: {path}")
+	};
 
 	let fs = super::FILESYSTEM
 		.get()
@@ -77,7 +79,6 @@ pub(crate) fn register_ioctl(path: &str, ioctl_object: Arc<async_lock::RwLock<Fd
 
 	// Create parent directory
 	if !directory.is_empty() {
-		let directory = directory.join("/");
 		let _ = fs
 			.root
 			.traverse_mkdir(&directory, AccessPermission::all()); // ignore possible errors at this step
