@@ -318,14 +318,10 @@ pub(crate) fn init() {
 	root_filesystem
 		.mkdir("/proc", AccessPermission::from_bits(0o777).unwrap())
 		.expect("Unable to create /proc");
-	FILESYSTEM
-		.get()
-		.unwrap()
+	root_filesystem
 		.mkdir("/dev", AccessPermission::from_bits(0o777).unwrap())
 		.expect("Unable to create /dev");
-	FILESYSTEM
-		.get()
-		.unwrap()
+	root_filesystem
 		.mkdir("/dev/shm", AccessPermission::from_bits(0o777).unwrap())
 		.expect("Unable to create /dev/shm");
 
