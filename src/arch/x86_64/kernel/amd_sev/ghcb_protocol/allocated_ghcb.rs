@@ -1,6 +1,5 @@
 use super::error_exit_codes;
 use crate::arch::core_local::core_id;
-use crate::arch::kernel::amd_sev::decrypted_allocator::SharedPagesAllocator;
 use crate::arch::kernel::amd_sev::ghcb_protocol::ghcb::{Ghcb, GHCB_SCRATCH_OFFSET};
 use crate::arch::kernel::amd_sev::ghcb_protocol::ghcb_msr;
 use crate::arch::kernel::amd_sev::ghcb_protocol::ghcb_msr::ghcb_request_exit;
@@ -10,6 +9,8 @@ use core::alloc::Layout;
 use core::mem;
 use core::ops::{Deref, DerefMut};
 use core::sync::atomic::{AtomicU8, Ordering};
+use virtio::pci::CapCfgType::Device;
+use crate::mm::device_alloc::DeviceAlloc;
 use hermit_sync::InterruptOneShotMutex;
 use memory_addresses::PhysAddr;
 
@@ -131,7 +132,7 @@ impl DerefMut for GhcbLock<'_> {
 
 impl AllocatedGhcb {
 	pub fn new() -> Self {
-		let (ghcb_ptr, physical_address) = SharedPagesAllocator.allocate_with_physical(Layout::new::<Ghcb>()).expect("failed to allocate memory for GHCB");
+		let (ghcb_ptr, physical_address) = DeviceAlloc.allocate_with_physical(Layout::new::<Ghcb>()).expect("failed to allocate memory for GHCB");
 
 		Self {
 			physical_address: physical_address,
