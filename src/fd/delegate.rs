@@ -1,5 +1,6 @@
 #[cfg(any(feature = "net", feature = "virtio-vsock"))]
 use alloc::sync::Arc;
+use core::ffi::c_void;
 use core::mem::MaybeUninit;
 
 use delegate::delegate;
@@ -181,6 +182,8 @@ impl ObjectInterface for Fd {
 			async fn truncate(&self, _size: usize) -> io::Result<()>;
 			async fn chmod(&self, _access_permission: AccessPermission) -> io::Result<()>;
 			async fn isatty(&self) -> io::Result<bool>;
+			fn handle_ioctl(&mut self, cmd: crate::fs::ioctl::IoCtlCall, argp: *mut c_void) -> io::Result<()>;
+
 		}
 	}
 }
