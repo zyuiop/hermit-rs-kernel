@@ -17,7 +17,7 @@ use x86_64::registers::xcontrol::XCr0Flags;
 use x86_64::structures::paging::{PageSize, Size2MiB, Size4KiB};
 use crate::arch::kernel::amd_sev::ghcb_protocol::ghcb::GhcbU64Field;
 use crate::arch::kernel::amd_sev::rmpadjust::{rmpadjust, RmpAdjustment};
-use crate::mm::{FrameAlloc, PageRangeAllocator};
+use crate::mm::{FrameAlloc, PageAlloc, PageRangeAllocator};
 
 #[derive(Copy, Clone, Debug)]
 #[repr(C, packed)]
@@ -265,7 +265,7 @@ impl AllocatedVmsa {
         let frame_layout = PageLayout::from_size(size).unwrap();
 
         let frame_range = FrameAlloc::allocate(frame_layout)
-            .expect("failed to allocate memory for VMSA!");
+            .expect("failed to allocate physical memory for VMSA!");
 
         let phys = PhysAddr::from(frame_range.start());
 
@@ -279,11 +279,15 @@ impl AllocatedVmsa {
             return (new_virt, new_phys);
         }
 
+        let page_range = PageAlloc::allocate(frame_layout)
+            .expect("failed to allocate virtual memory for VMSA!");
+        let virt = VirtAddr::from(page_range.start());
+
         let mut flags = PageTableEntryFlags::empty()
             .union(PageTableEntryFlags::NO_EXECUTE | PageTableEntryFlags::WRITABLE);
         flags.set_encrypted(true);
 
-        let virt = mm::device_map_with_flags(phys, size, flags);
+        crate::arch::mm::paging::map::<Size4KiB>(virt, phys, 1, flags);
         (virt, phys)
     }
 

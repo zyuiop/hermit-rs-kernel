@@ -13,6 +13,7 @@ use virtio::pci::CapCfgType::Device;
 use crate::mm::device_alloc::DeviceAlloc;
 use hermit_sync::InterruptOneShotMutex;
 use memory_addresses::PhysAddr;
+use x86_64::structures::paging::{PageSize, Size4KiB};
 
 static EFI_GHCB_LOCK: InterruptOneShotMutex<EfiGhcb> = InterruptOneShotMutex::new(EfiGhcb);
 
