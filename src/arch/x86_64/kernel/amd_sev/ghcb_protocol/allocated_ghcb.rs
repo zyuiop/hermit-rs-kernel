@@ -1,13 +1,14 @@
 use alloc::boxed::Box;
-use core::alloc::Layout;
+use core::alloc::{Allocator, Layout};
 use core::mem;
 use core::ops::{Deref, DerefMut};
+use core::ptr::NonNull;
 use core::sync::atomic::{AtomicBool, AtomicU8, Ordering};
-
+use align_address::Align;
 use hermit_sync::{InterruptOneShotMutex, RwSpinLock};
 use memory_addresses::{PhysAddr, VirtAddr};
 use virtio::pci::CapCfgType::Device;
-use x86_64::structures::paging::{PageSize, Size4KiB};
+use x86_64::structures::paging::{PageSize, Size2MiB, Size4KiB};
 
 use super::error_exit_codes;
 use crate::arch::core_local::core_id;
@@ -18,6 +19,7 @@ use crate::arch::kernel::amd_sev::ghcb_protocol::ghcb_msr::{
 };
 use crate::mm;
 use crate::mm::device_alloc::DeviceAlloc;
+use crate::mm::FrameAlloc;
 
 static EFI_GHCB_LOCK: InterruptOneShotMutex<EfiGhcb> = InterruptOneShotMutex::new(EfiGhcb);
 
@@ -136,11 +138,21 @@ impl<'a> DerefMut for GhcbLock<'a> {
 
 impl AllocatedGhcb {
 	pub fn new() -> Self {
+		let layout = Layout::from_size_align(size_of::<Ghcb>(), Size4KiB::SIZE as usize).unwrap();
 		let (ghcb_ptr, physical_address) = DeviceAlloc
-			.allocate_with_physical(
-				Layout::from_size_align(size_of::<Ghcb>(), Size4KiB::SIZE as usize).unwrap(),
-			)
+			.allocate_with_physical(layout)
 			.expect("failed to allocate memory for GHCB");
+
+		if physical_address.is_aligned_to(Size2MiB::SIZE) {
+			let second_attempt = Self::new();
+
+			unsafe {
+				DeviceAlloc.deallocate(NonNull::new_unchecked(ghcb_ptr.as_mut_ptr()), layout);
+			}
+
+			return second_attempt;
+		}
+
 
 		info!("Allocated GHCB at {ghcb_ptr:x} (GFN: {physical_address:x})");
 
