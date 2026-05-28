@@ -530,11 +530,11 @@ unsafe fn encrypt_frame<S: PageSize>(page_table: &mut OffsetPageTable<'static>, 
 #[cfg(feature = "amd-sev")]
 unsafe fn walk_make_encrypted_node(page_table: &mut OffsetPageTable<'static>, pt_frame: PhysFrame, level: u8) {
 	let pt_address = page_table.phys_offset() + pt_frame.start_address().as_u64();
-	let pt = unsafe {
-		pt_address.as_ptr::<PageTable>().as_ref().unwrap()
+	let mut pt = unsafe {
+		pt_address.as_mut_ptr::<PageTable>().as_mut().unwrap()
 	};
 
-	for entry in pt.iter() {
+	for entry in pt.iter_mut() {
 		if entry.is_unused() {
 			continue;
 		}
@@ -542,6 +542,11 @@ unsafe fn walk_make_encrypted_node(page_table: &mut OffsetPageTable<'static>, pt
 		let is_page_table = level > 1 && !entry.flags().contains(PageTableFlags::HUGE_PAGE);
 		if is_page_table {
 			let phys = entry.frame().unwrap();
+			if phys.start_address().is_null() {
+				entry.set_unused();
+				continue;
+			}
+
 			walk_make_encrypted_node(page_table, phys, level - 1);
 		} else if !entry.flags().is_encrypted() {
 			let virt_addr = page_table.phys_offset() + entry.addr().as_u64();
