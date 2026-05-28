@@ -61,19 +61,16 @@ pub fn total_memory_size() -> usize {
 	TOTAL_MEMORY.load(Ordering::Relaxed)
 }
 
-pub unsafe fn map_frame_range(frame_range: PageRange) {
-	cfg_select! {
-		target_arch = "aarch64" => {
-			type IdentityPageSize = paging::BasePageSize;
-		}
-		target_arch = "riscv64" => {
-			type IdentityPageSize = HugePageSize;
-		}
-		target_arch = "x86_64" => {
-			type IdentityPageSize = paging::LargePageSize;
-		}
-	}
+#[cfg(target_arch = "aarch64")]
+pub type IdentityPageSize = crate::arch::mm::paging::BasePageSize;
 
+#[cfg(target_arch = "riscv64")]
+pub type IdentityPageSize = crate::arch::mm::paging::HugePageSize;
+
+#[cfg(target_arch = "x86_64")]
+pub type IdentityPageSize = crate::arch::mm::paging::LargePageSize;
+
+pub unsafe fn map_frame_range(frame_range: PageRange) {
 	let start = frame_range
 		.start()
 		.align_down(IdentityPageSize::SIZE.try_into().unwrap());
