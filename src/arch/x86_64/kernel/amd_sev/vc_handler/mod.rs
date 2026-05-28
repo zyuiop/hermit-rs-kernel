@@ -142,15 +142,12 @@ extern "C" fn vmm_interrupt_exception_inner(
         return;
     }
 
+    with_ghcb(|ghcb| {
+        let mut instruction = InstructionData::new(stack_frame.exception.instruction_pointer.as_ptr());
 
-    without_interrupts(|| {
-        with_ghcb(|ghcb| {
-            let mut instruction = InstructionData::new(stack_frame.exception.instruction_pointer.as_ptr());
+        do_handle(stack_frame, &mut instruction, stack_frame.error_code, ghcb);
 
-            do_handle(stack_frame, &mut instruction, stack_frame.error_code, ghcb);
-
-            stack_frame.exception.instruction_pointer += instruction.size() as u64;
-        });
+        stack_frame.exception.instruction_pointer += instruction.size() as u64;
     });
     debug!("VC# handle done - return address: {:#?}", stack_frame.exception.instruction_pointer);
 }
