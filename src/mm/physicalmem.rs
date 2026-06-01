@@ -6,7 +6,7 @@ use align_address::Align;
 use free_list::{FreeList, PageLayout, PageRange, PageRangeError};
 use hermit_sync::InterruptTicketMutex;
 use memory_addresses::{PhysAddr, VirtAddr};
-
+use x86_64::structures::paging::Size4KiB;
 #[cfg(target_arch = "x86_64")]
 use crate::arch::mm::paging::PageTableEntryFlagsExt;
 use crate::arch::mm::paging::{self, HugePageSize, PageSize, PageTableEntryFlags};
@@ -112,6 +112,15 @@ unsafe fn detect_from_fdt() -> Result<(), ()> {
 			} else {
 				VirtAddr::new(start_address)
 			};
+
+		let start_address = if start_address.is_null() {
+			if size < Size4KiB::SIZE * 2 {
+				continue
+			}
+			VirtAddr::new(Size4KiB::SIZE)
+		} else {
+			start_address
+		};
 
 		let range = PageRange::new(start_address.as_usize(), end_address as usize).unwrap();
 		unsafe {
