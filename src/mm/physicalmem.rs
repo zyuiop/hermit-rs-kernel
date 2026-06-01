@@ -82,22 +82,6 @@ pub unsafe fn map_frame_range(frame_range: PageRange) {
 		.step_by(IdentityPageSize::SIZE.try_into().unwrap())
 		.map(|addr| PhysAddr::new(addr.try_into().unwrap()))
 		.for_each(paging::identity_map::<IdentityPageSize>);
-
-	// Map the physical memory again if DeviceAlloc operates at an offset
-	if DeviceAlloc.phys_offset() != VirtAddr::zero() {
-		let flags = {
-			let mut flags = PageTableEntryFlags::empty();
-			flags.normal().writable().execute_disable();
-			flags
-		};
-		(start..end)
-			.step_by(IdentityPageSize::SIZE.try_into().unwrap())
-			.for_each(|addr| {
-				let phys_addr = PhysAddr::new(addr.try_into().unwrap());
-				let virt_addr = VirtAddr::from_ptr(DeviceAlloc.ptr_from::<()>(phys_addr));
-				paging::map::<IdentityPageSize>(virt_addr, phys_addr, 1, flags);
-			});
-	}
 }
 
 unsafe fn detect_from_fdt() -> Result<(), ()> {
@@ -223,6 +207,7 @@ unsafe fn detect_from_limits() -> Result<(), ()> {
 
 unsafe fn init() {
 	if env::is_uefi() && DeviceAlloc.phys_offset() != VirtAddr::zero() {
+		// Remove all mappings in the device allocator range
 		let start = DeviceAlloc.phys_offset();
 		let count = DeviceAlloc.phys_offset().as_u64().div_ceil(HugePageSize::SIZE);
 		let count = usize::try_from(count).unwrap();
