@@ -1002,3 +1002,99 @@ mod offset_page_table {
 		}
 	}
 }
+
+#[allow(dead_code)]
+pub unsafe fn disect<PT: Translate>(pt: PT, virt_addr: x86_64::VirtAddr) {
+	use x86_64::structures::paging::mapper::{MappedFrame, TranslateResult};
+
+	match pt.translate(virt_addr) {
+		TranslateResult::Mapped {
+			frame,
+			offset,
+			flags,
+		} => {
+			let phys_addr = frame.start_address() + offset;
+			println!("virt_addr: {virt_addr:p}, phys_addr: {phys_addr:p}, flags: {flags:?}");
+			println!("frame: {frame:x?}");
+			let indices = [
+				virt_addr.p4_index(),
+				virt_addr.p3_index(),
+				virt_addr.p2_index(),
+				virt_addr.p1_index(),
+			];
+			let valid_indices = match frame {
+				MappedFrame::Size4KiB(_) => &indices[..4],
+				MappedFrame::Size2MiB(_) => &indices[..3],
+				MappedFrame::Size1GiB(_) => &indices[..2],
+			};
+			for (i, page_table_index) in valid_indices.iter().copied().enumerate() {
+				print!("p{}: {}, ", 4 - i, u16::from(page_table_index));
+			}
+			println!(" ");
+			unsafe {
+				print_page_table_entries(valid_indices);
+			}
+		}
+		TranslateResult::NotMapped => todo!(),
+		TranslateResult::InvalidFrameAddress(_) => todo!(),
+	}
+}
+
+#[allow(dead_code)]
+unsafe fn print_page_table_entries(
+	page_table_indices: &[x86_64::structures::paging::PageTableIndex],
+) {
+	assert!(page_table_indices.len() <= 4);
+
+	// Identity mapped
+	let identity_mapped_page_table = unsafe { identity_mapped_page_table() };
+	let mut pt = identity_mapped_page_table.level_4_table();
+
+	for (i, page_table_index) in page_table_indices.iter().copied().enumerate() {
+		let level = 4 - i;
+		let entry = &pt[page_table_index];
+
+		let indent = &"        "[0..2 * i];
+		let page_table_index = u16::from(page_table_index);
+		println!("{indent}L{level} Entry {page_table_index}: {entry:?}");
+
+		if i < page_table_indices.len() - 1 {
+			let phys = entry.frame().unwrap().start_address();
+			let virt = x86_64::VirtAddr::new(phys.as_u64());
+			pt = unsafe { &*virt.as_mut_ptr() };
+		}
+	}
+}
+
+#[allow(dead_code)]
+pub(crate) unsafe fn print_page_tables(levels: usize) {
+	assert!((1..=4).contains(&levels));
+
+	fn print(table: &PageTable, level: usize, min_level: usize) {
+		for (i, entry) in table
+			.iter()
+			.enumerate()
+			.filter(|(_i, entry)| !entry.is_unused())
+		{
+			if level < min_level {
+				break;
+			}
+			let indent = &"        "[0..2 * (4 - level)];
+			println!("{indent}L{level} Entry {i}: {entry:?}");
+
+			if level > min_level && !entry.flags().contains(PageTableEntryFlags::HUGE_PAGE) {
+				let phys = entry.frame().unwrap().start_address();
+				let virt = x86_64::VirtAddr::new(phys.as_u64());
+				let entry_table = unsafe { &*virt.as_mut_ptr() };
+
+				print(entry_table, level - 1, min_level);
+			}
+		}
+	}
+
+	// Identity mapped
+	let identity_mapped_page_table = unsafe { identity_mapped_page_table() };
+	let pt = identity_mapped_page_table.level_4_table();
+
+	print(pt, 4, 5 - levels);
+}
