@@ -15,7 +15,6 @@ use crate::arch::mm::paging;
 use crate::arch::mm::paging::{
 	BasePageSize, PageSize, PageTableEntryFlags, PageTableEntryFlagsExt,
 };
-use crate::mm::physicalmem::IdentityPageSize;
 use crate::mm::{FrameAlloc, PageRangeAllocator, virtualmem};
 
 /// An [`Allocator`] for memory that is used to communicate with devices.
@@ -25,104 +24,17 @@ pub struct DeviceAlloc;
 
 pub const ENABLE_PHYS_OFFSET: bool = cfg!(any(careful, feature = "amd-sev"));
 
-static DEVICE_FREE_LIST: InterruptTicketMutex<DeviceFreeList> =
-	InterruptTicketMutex::new(DeviceFreeList::new());
-
-struct DeviceFreeList(FreeList<16>);
-
-impl DeviceFreeList {
-	const fn new() -> DeviceFreeList {
-		DeviceFreeList(FreeList::new())
-	}
-
-	fn add_page(&mut self) -> Result<(), AllocError> {
-		let allocated_frame: PhysFrame<Size2MiB> =
-			FrameAlloc::allocate_frame(&mut FrameAlloc).ok_or_else(|| AllocError)?;
-
-		if IdentityPageSize::SIZE > Size2MiB::SIZE {
-			panic!("IdentityPageSize is too large!")
-		}
-
-		if ENABLE_PHYS_OFFSET {
-			self.map_device_page(allocated_frame);
-		}
-
-		unsafe {
-			self.0
-				.deallocate(allocated_frame.into())
-				.map_err(|_| AllocError)
-		}
-	}
-
-	fn map_device_page(&self, frame: PhysFrame<Size2MiB>) {
-		// 1. Remove page table entry in identity mapped table for this page
-		paging::unmap::<IdentityPageSize>(
-			VirtAddr::new(frame.start_address().as_u64()),
-			(Size2MiB::SIZE / IdentityPageSize::SIZE) as usize,
-		);
-
-		// 2. Update the RMP
-		#[cfg(feature = "amd-sev")]
-		if IdentityPageSize::SIZE == Size2MiB::SIZE {
-			change_page_states(&[PageStateChangeEntry::new_for_frame(
-				frame,
-				PageStateChangeOperation::PageAssignShared,
-			)])
-			.expect("failed to update RMP");
-		} else {
-			change_page_states(&[
-				PageStateChangeEntry::new_for_frame(frame, PageStateChangeOperation::PageUnsmash),
-				PageStateChangeEntry::new_for_frame(
-					frame,
-					PageStateChangeOperation::PageAssignShared,
-				),
-			])
-			.expect("failed to update RMP");
-		}
-
-		// 3. Add an entry at the device offset
-		let flags = {
-			let mut flags = PageTableEntryFlags::empty();
-			// TODO: we should in theory set .device() here, but this disables cache and slows down
-			// operations on shared memory. Maybe we can get away with this???
-			flags.normal().writable().execute_disable();
-			flags
-		};
-
-		let phys_addr = frame.start_address().into();
-		let virt_addr = VirtAddr::from_ptr(DeviceAlloc.ptr_from::<()>(phys_addr));
-		paging::map::<Size2MiB>(virt_addr, phys_addr, 1, flags);
-	}
-
-	fn allocate(&mut self, frame_layout: PageLayout) -> Result<PageRange, AllocError> {
-		let allocation = self.0.allocate(frame_layout).map_err(|_| AllocError);
-
-		match allocation {
-			Err(_) => {
-				self.add_page()?;
-				self.0.allocate(frame_layout).map_err(|_| AllocError)
-			}
-			ok => ok,
-		}
-	}
-
-	fn deallocate(&mut self, range: PageRange) -> Result<(), AllocError> {
-		// OPTIONAL: if we have too much memory in the list we may return it to the physical free list
-		// In this case, we MUST set it to private again
-		unsafe { self.0.deallocate(range).map_err(|_| AllocError) }
-	}
-}
-
 unsafe impl Allocator for DeviceAlloc {
 	fn allocate(&self, layout: Layout) -> Result<NonNull<[u8]>, AllocError> {
 		assert!(layout.align() <= BasePageSize::SIZE as usize);
 		let size = layout.size().align_up(BasePageSize::SIZE as usize);
 		let frame_layout = PageLayout::from_size(size).unwrap();
 
-		let frame_range = DEVICE_FREE_LIST
-			.lock()
-			.allocate(frame_layout)
-			.map_err(|_| AllocError)?;
+		let frame_range = cfg_select! {
+			any(careful, feature = "amd-sev") => super::device_free_list::DeviceFreeList::allocate(frame_layout),
+			_ => crate::mm::FrameAlloc::allocate(frame_layout),
+		}
+		.map_err(|_| AllocError)?;
 
 		let phys_addr = PhysAddr::from(frame_range.start());
 		let ptr = self.ptr_from(phys_addr);
@@ -138,7 +50,10 @@ unsafe impl Allocator for DeviceAlloc {
 		let range = PageRange::from_start_len(phys_addr.as_usize(), size).unwrap();
 
 		unsafe {
-			DEVICE_FREE_LIST.lock().deallocate(range).unwrap();
+			cfg_select! {
+				any(careful, feature = "amd-sev") => super::device_free_list::DeviceFreeList::deallocate(range),
+				_ => crate::mm::FrameAlloc::deallocate(range),
+			};
 		}
 	}
 }
