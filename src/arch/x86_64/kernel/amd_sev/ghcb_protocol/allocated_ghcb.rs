@@ -139,8 +139,6 @@ impl AllocatedGhcb {
 			)
 			.expect("failed to allocate memory for GHCB");
 
-		info!("Allocated GHCB at {ghcb_ptr:x} (GFN: {physical_address:x})");
-
 		Self {
 			physical_address: physical_address,
 			inner: ghcb_ptr.as_mut_ptr(),
@@ -219,6 +217,9 @@ pub fn init_ghcb_for_core() {
 	if let Err(_) = ALLOCATED_GHCB[core_id].set(allocated) {
 		panic!("GHCB is already initialized!");
 	}
+
+	let allocated = ALLOCATED_GHCB[core_id].get().expect("no GHCB set");
+	info!("Allocated GHCB for core at 0x{:X} (physical address: 0x{:X})", allocated.inner.addr(), allocated.physical_address.as_u64());
 
 	assert!(ALLOCATED_GHCB[core_id].get().is_some());
 }
