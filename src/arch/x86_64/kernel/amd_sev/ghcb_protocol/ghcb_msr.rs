@@ -80,6 +80,7 @@ impl From<u64> for GhcbMsrResponse {
     }
 }
 
+#[inline(always)]
 pub fn ghcb_request_exit(exit_code: u8) -> ! {
     GHCB_MSR.send_request_noret(GhcbMsrRequest::RequestTermination {
         reason: exit_code,
@@ -87,6 +88,7 @@ pub fn ghcb_request_exit(exit_code: u8) -> ! {
     });
 }
 
+#[inline(always)]
 pub unsafe fn vmgexit() {
     unsafe {
         asm!("rep; vmmcall\n\r", options());
@@ -98,6 +100,7 @@ impl GhcbMsr {
         Self(Msr::new(0xC001_0130))
     }
 
+    #[inline(always)]
     pub unsafe fn send_request(&self, request: GhcbMsrRequest) -> GhcbMsrResponse {
         let mut msr = Msr::new(0xC001_0130);
         unsafe {
@@ -107,6 +110,7 @@ impl GhcbMsr {
         }
     }
 
+    #[inline(always)]
     pub unsafe fn write_request(&self, request: GhcbMsrRequest) {
         let mut msr = Msr::new(0xC001_0130);
         unsafe {
@@ -114,6 +118,7 @@ impl GhcbMsr {
         }
     }
 
+    #[inline(always)]
     pub fn send_request_noret(&self, request: GhcbMsrRequest) -> ! {
         let mut msr = Msr::new(0xC001_0130);
         unsafe {
@@ -125,6 +130,7 @@ impl GhcbMsr {
 
     /// Writes a command using the GHCB protocol and restores the value that was previously set
     /// This makes sure that EFI GHCB handlers can still access the GHCB page
+    #[inline(always)]
     pub fn send_request_restore(&self, request: GhcbMsrRequest) -> GhcbMsrResponse {
         let mut msr = Msr::new(0xC001_0130);
         unsafe {
@@ -137,10 +143,12 @@ impl GhcbMsr {
         }
     }
 
+    #[inline(always)]
     pub fn inner(&mut self) -> &mut Msr {
         &mut self.0
     }
 
+    #[inline(always)]
     pub fn read_state(&self) -> GhcbMsrResponse {
         unsafe {
             self.0.read().into()
