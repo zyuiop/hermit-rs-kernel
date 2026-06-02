@@ -8,7 +8,9 @@
 use alloc::vec::Vec;
 use core::ptr::{self, NonNull};
 
-use memory_addresses::{PhysAddr, VirtAddr};
+#[cfg(feature = "amd-sev")]
+use ghcb::protocols::mmio::MmioPtr;
+use memory_addresses::PhysAddr;
 use pci_types::capability::PciCapability;
 use virtio::pci::{
 	CapCfgType, CapData, CommonCfg, CommonCfgVolatileFieldAccess, CommonCfgVolatileWideFieldAccess,
@@ -19,9 +21,7 @@ use volatile::access::ReadOnly;
 use volatile::{VolatilePtr, VolatileRef};
 
 #[cfg(feature = "amd-sev")]
-use crate::arch::kernel::amd_sev::ghcb_protocol::protocol_mmio::{
-	ghcb_mmio_write, mmio_read_volatile, mmio_write_volatile,
-};
+use crate::arch::kernel::amd_sev::StaticGhcbManager;
 use crate::arch::pci::PciConfigRegion;
 #[cfg(feature = "virtio-console")]
 use crate::drivers::console::VirtioConsoleDriver;
@@ -41,6 +41,7 @@ use crate::drivers::virtio::transport::pci::PciBar as VirtioPciBar;
 use crate::drivers::virtio::{ControlRegisters, VirtioIdExt};
 #[cfg(feature = "virtio-vsock")]
 use crate::drivers::vsock::VirtioVsockDriver;
+#[cfg(feature = "amd-sev")]
 use crate::mm::device_alloc::DeviceAlloc;
 
 /// Maps a given device specific pci configuration structure and
@@ -435,7 +436,7 @@ pub struct NotifCtrl {
 	notif_addr: *mut le32,
 
 	#[cfg(feature = "amd-sev")]
-	notif_addr: PhysAddr,
+	notif_addr: MmioPtr<le32, StaticGhcbManager>,
 }
 
 // FIXME: make `notif_addr` implement `Send` instead
@@ -450,6 +451,9 @@ impl NotifCtrl {
 
 		NotifCtrl {
 			f_notif_data: false,
+			#[cfg(feature = "amd-sev")]
+			notif_addr: MmioPtr::new(notif_addr.into()),
+			#[cfg(not(feature = "amd-sev"))]
 			notif_addr,
 		}
 	}
@@ -484,14 +488,11 @@ impl NotifCtrl {
 		// Depending in the feature negotiation, we write either only the
 		// virtqueue index or the index and the next position inside the queue.
 		if self.f_notif_data {
-			unsafe {
-				mmio_write_volatile(data.into_bits(), self.notif_addr)
-					.expect("failed to notify device");
-			}
+			unsafe { self.notif_addr.write_volatile(data.into_bits()) }
 		} else {
 			unsafe {
-				mmio_write_volatile::<le16>(data.vqn().into(), self.notif_addr)
-					.expect("failed to notify device");
+				let vqn: le16 = data.vqn().into();
+				self.notif_addr.write_volatile(vqn.into())
 			}
 		};
 	}
@@ -512,7 +513,7 @@ pub struct IsrStatus {
 
 #[cfg(feature = "amd-sev")]
 pub struct IsrStatus {
-	interrupt_status: PhysAddr,
+	interrupt_status: MmioPtr<IsrStatusRaw, StaticGhcbManager>,
 }
 
 impl IsrStatus {
@@ -525,7 +526,7 @@ impl IsrStatus {
 	fn new(mut raw: VolatileRef<'static, IsrStatusRaw>) -> Self {
 		let ptr = raw.as_mut_ptr().as_raw_ptr().as_ptr();
 		IsrStatus {
-			interrupt_status: DeviceAlloc.phys_addr_from(ptr),
+			interrupt_status: MmioPtr::new(DeviceAlloc.phys_addr_from(ptr).into()),
 		}
 	}
 
@@ -536,7 +537,7 @@ impl IsrStatus {
 
 	#[cfg(feature = "amd-sev")]
 	pub fn acknowledge(&mut self) -> IsrStatusRaw {
-		unsafe { mmio_read_volatile(self.interrupt_status).expect("failed to read isr status") }
+		unsafe { self.interrupt_status.read_volatile() }
 	}
 }
 

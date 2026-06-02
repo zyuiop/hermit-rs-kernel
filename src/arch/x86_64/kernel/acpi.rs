@@ -1,18 +1,24 @@
 use core::{ptr, slice, str};
 
-use align_address::Align;
-use free_list::{PageLayout, PageRange};
-use hermit_sync::OnceCell;
-use memory_addresses::{PhysAddr, VirtAddr};
-use x86_64::instructions::port::Port;
-use x86_64::structures::paging::PhysFrame;
-
+#[cfg(feature = "amd-sev")]
+use crate::arch::kernel::amd_sev::allocations::ghcb::EmergencyChannelManager;
 use crate::arch::x86_64::mm::paging;
 use crate::arch::x86_64::mm::paging::{
-	BasePageSize, PageSize, PageTableEntryFlags, PageTableEntryFlagsExt,
+    BasePageSize, PageSize, PageTableEntryFlags, PageTableEntryFlagsExt,
 };
 use crate::env;
 use crate::mm::{PageAlloc, PageRangeAllocator};
+use align_address::Align;
+use free_list::{PageLayout, PageRange};
+#[cfg(feature = "amd-sev")]
+use ghcb::protocols::ioio::IoIoPort as Port;
+#[cfg(feature = "amd-sev")]
+use ghcb::structures::ChannelManager;
+use hermit_sync::OnceCell;
+use memory_addresses::{PhysAddr, VirtAddr};
+#[cfg(not(feature = "amd-sev"))]
+use x86_64::instructions::port::Port;
+use x86_64::structures::paging::PhysFrame;
 
 /// Memory at this physical address is supposed to contain a pointer to the Extended BIOS Data Area (EBDA).
 const EBDA_PTR_LOCATION: PhysAddr = PhysAddr::new(0x0000_040e);
@@ -505,14 +511,25 @@ pub fn get_mcfg_table() -> Option<&'static AcpiTable<'static>> {
 pub fn poweroff() {
 	let (Some(mut pm1a_cnt_blk), Some(&slp_typa)) = (PM1A_CNT_BLK.get().cloned(), SLP_TYPA.get())
 	else {
+		// Disable log output for AMD SEV because we may have panicked, at which point the console is not available safely
+		#[cfg(not(feature = "amd-sev"))]
 		warn!("ACPI Power Off is not available");
 		return;
 	};
 
 	let bits = (u16::from(slp_typa) << 10) | SLP_EN;
+	#[cfg(not(feature = "amd-sev"))]
 	debug!("Powering Off through ACPI (port {pm1a_cnt_blk:?}, bitmask {bits:#X})");
 	unsafe {
+		#[cfg(not(feature = "amd-sev"))]
 		pm1a_cnt_blk.write(bits);
+
+		#[cfg(feature = "amd-sev")]
+		unsafe {
+			EmergencyChannelManager::get_channel().with_ghcb_force(|mut ghcb| {
+				pm1a_cnt_blk.write(&mut ghcb, bits);
+			});
+		}
 	}
 }
 

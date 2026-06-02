@@ -239,6 +239,9 @@ fn boot_processor_main() -> ! {
 	#[cfg(all(target_arch = "x86_64", feature = "amd-sev"))]
 	kernel::amd_sev::enable_sev();
 
+	#[cfg(all(target_arch = "x86_64", not(feature = "amd-sev")))]
+	kernel::sev_stub::ensure_sev_disabled();
+
 	// Initialize the kernel and hardware.
 	mm::claim_initial_heap();
 	hermit_sync::Lazy::force(&console::CONSOLE);

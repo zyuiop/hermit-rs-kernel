@@ -1,8 +1,13 @@
 use core::fmt::Debug;
 use core::ffi::c_void;
+use hermit_sync::Lazy;
 use memory_addresses::VirtAddr;
+use ghcb::protocols::GhcbProtocolRequest;
+use ghcb::protocols::snp_guest_request::SnpGuestRequest;
+use ghcb::structures::snp_guest_request::attest::{AttestationRequest, AttestationResponse};
+use crate::arch::kernel::amd_sev::StaticGhcbManager;
 use crate::fd::ObjectInterface;
-use super::ghcb_protocol::guest_request;
+use crate::arch::x86_64::kernel::amd_sev::allocations::{cc_blob, shared_pages};
 
 #[derive(Debug)]
 pub struct SevGuestIoCtl;
@@ -34,7 +39,7 @@ impl ObjectInterface for SevGuestIoCtl {
                 // TODO: ensure addresses are valid
                 // TODO: reduce data copies
                 let attestation_request = unsafe {
-                    (*arg).req_data.as_ptr::<guest_request::attestation_request::AttestationRequest>()
+                    (*arg).req_data.as_ptr::<AttestationRequest>()
                 };
 
                 let attestation_request = unsafe {
@@ -44,15 +49,21 @@ impl ObjectInterface for SevGuestIoCtl {
                 info!("!! will print attestation request");
                 info!("sev-ioctl: attestation_request: {:x?}", &attestation_request);
 
-                let attestation_response = guest_request::send_request(
-                    attestation_request
-                ).unwrap();
+                let request = SnpGuestRequest::new(
+                    attestation_request,
+                    Lazy::force(&cc_blob::CC_BLOB),
+                    Lazy::force(&shared_pages::REQUEST_PAGE),
+                    Lazy::force(&shared_pages::RESPONSE_PAGE),
+                );
+                let attestation_response = request
+                    .execute::<StaticGhcbManager>()
+                    .expect("failed to obtain attestation");
 
                 info!("!! will print attestation response");
                 info!("sev-ioctl: attestation_response: {:x?}", &attestation_response);
 
                 unsafe {
-                    let target_ptr = (*arg).resp_data.as_mut_ptr::<guest_request::attestation_request::AttestationResponse>();
+                    let target_ptr = (*arg).resp_data.as_mut_ptr::<AttestationResponse>();
                     target_ptr.write(attestation_response);
 
                     // TODO

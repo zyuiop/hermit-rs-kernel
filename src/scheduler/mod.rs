@@ -21,6 +21,7 @@ use riscv::register::sstatus;
 use timer_interrupts::TimerList;
 
 use crate::arch::core_local::*;
+use crate::arch::interrupts::IST_ENTRIES;
 #[cfg(target_arch = "riscv64")]
 use crate::arch::switch::switch_to_task;
 #[cfg(target_arch = "x86_64")]
@@ -31,7 +32,6 @@ use crate::fd::{Fd, RawFd};
 use crate::kernel::scheduler::TaskStacks;
 use crate::scheduler::task::*;
 use crate::{arch, io};
-use crate::arch::interrupts::IST_ENTRIES;
 
 pub mod task;
 pub mod timer_interrupts;
@@ -599,10 +599,16 @@ impl PerCoreScheduler {
 		let current_task_borrowed = self.current_task.borrow();
 		let tss = unsafe { &mut *CoreLocal::get().tss.get() };
 
-		let rsp = current_task_borrowed.stacks.get_kernel_stack().top_of_stack();
+		let rsp = current_task_borrowed
+			.stacks
+			.get_kernel_stack()
+			.top_of_stack();
 		tss.privilege_stack_table[0] = rsp.into();
 
-		let _ = CoreLocal::get().kernel_stack.borrow_mut().insert(current_task_borrowed.stacks.get_kernel_stack().weak());
+		let _ = CoreLocal::get()
+			.kernel_stack
+			.borrow_mut()
+			.insert(current_task_borrowed.stacks.get_kernel_stack().weak());
 
 		let interrupt_stacks = current_task_borrowed.stacks.get_interrupt_stacks();
 		for i in 0..IST_ENTRIES {
@@ -645,7 +651,11 @@ impl PerCoreScheduler {
 	pub fn set_current_kernel_stack(&self) {
 		let current_task_borrowed = self.current_task.borrow();
 
-		let stack = current_task_borrowed.stacks.get_kernel_stack().top_of_stack().as_u64();
+		let stack = current_task_borrowed
+			.stacks
+			.get_kernel_stack()
+			.top_of_stack()
+			.as_u64();
 		CoreLocal::get().kernel_stack.set(stack);
 	}
 
@@ -851,7 +861,6 @@ fn get_tid() -> TaskId {
 pub(crate) fn abort() -> ! {
 	core_scheduler().exit(-1)
 }
-
 
 /// Add a per-core scheduler for the current core.
 pub(crate) fn add_current_core() {

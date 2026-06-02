@@ -1,6 +1,4 @@
-use alloc::alloc::alloc;
 use alloc::vec::Vec;
-use core::alloc::Layout;
 #[cfg(feature = "smp")]
 use core::arch::x86_64::_mm_mfence;
 #[cfg(feature = "acpi")]
@@ -21,9 +19,12 @@ use x86_64::registers::control::Cr3;
 
 #[cfg(not(feature = "amd-sev"))]
 use x86_64::registers::model_specific::Msr;
-
 #[cfg(feature = "amd-sev")]
-use crate::arch::kernel::amd_sev::ghcb_protocol::protocol_msr::Msr;
+use ghcb::protocols::GhcbProtocolRequest;
+#[cfg(feature = "amd-sev")]
+use ghcb::protocols::snp_ap_create::SnpApCreate;
+#[cfg(feature = "amd-sev")]
+use crate::arch::kernel::amd_sev::Msr;
 
 use super::interrupts::IDT;
 use crate::arch::x86_64::kernel::CURRENT_STACK_ADDRESS;
@@ -39,7 +40,9 @@ use crate::mm::{PageAlloc, PageBox, PageRangeAllocator};
 use crate::scheduler::CoreId;
 use crate::{arch, env, scheduler};
 #[cfg(feature = "amd-sev")]
-use crate::arch::kernel::amd_sev::ghcb_protocol::protocol_ap_creation::snp_ap_create;
+use crate::arch::kernel::amd_sev::mmap::SevAllocator;
+#[cfg(feature = "amd-sev")]
+use crate::arch::kernel::amd_sev::StaticGhcbManager;
 use crate::arch::kernel::CURRENT_STACK;
 use crate::mm::stack_alloc::allocate_stack;
 
@@ -839,34 +842,36 @@ pub fn boot_application_processors() {
 			// Send an INIT IPI.
 			#[cfg(feature = "amd-sev")]
 			{
-				snp_ap_create(apic_id as u32, SMP_BOOT_CODE_ADDRESS);
+				// For SNP, we instead need to send a special request
+				SnpApCreate::<SevAllocator>::new_alloc(apic_id as u32, SMP_BOOT_CODE_ADDRESS.into())
+					.execute::<StaticGhcbManager>();
 			}
 
 			#[cfg(not(feature = "amd-sev"))]
 			{
 
 				let destination = u64::from(apic_id) << 32;
-				crate::arch::x86_64::kernel::apic::local_apic_write(
-					crate::arch::x86_64::kernel::apic::IA32_X2APIC_ICR,
+				local_apic_write(
+					IA32_X2APIC_ICR,
 					destination
-						| crate::arch::x86_64::kernel::apic::APIC_ICR_LEVEL_TRIGGERED
-						| crate::arch::x86_64::kernel::apic::APIC_ICR_LEVEL_ASSERT
-						| crate::arch::x86_64::kernel::apic::APIC_ICR_DELIVERY_MODE_INIT,
+						| APIC_ICR_LEVEL_TRIGGERED
+						| APIC_ICR_LEVEL_ASSERT
+						| APIC_ICR_DELIVERY_MODE_INIT,
 				);
 				processor::udelay(200);
 
-				crate::arch::x86_64::kernel::apic::local_apic_write(
-					crate::arch::x86_64::kernel::apic::IA32_X2APIC_ICR,
-					destination | crate::arch::x86_64::kernel::apic::APIC_ICR_LEVEL_TRIGGERED | crate::arch::x86_64::kernel::apic::APIC_ICR_DELIVERY_MODE_INIT,
+				local_apic_write(
+					IA32_X2APIC_ICR,
+					destination | APIC_ICR_LEVEL_TRIGGERED | APIC_ICR_DELIVERY_MODE_INIT,
 				);
 				processor::udelay(10000);
 
 				// Send a STARTUP IPI.
-				crate::arch::x86_64::kernel::apic::local_apic_write(
-					crate::arch::x86_64::kernel::apic::IA32_X2APIC_ICR,
+				local_apic_write(
+					IA32_X2APIC_ICR,
 					destination
-						| crate::arch::x86_64::kernel::apic::APIC_ICR_DELIVERY_MODE_STARTUP
-						| ((crate::arch::x86_64::kernel::apic::SMP_BOOT_CODE_ADDRESS.as_u64()) >> 12),
+						| APIC_ICR_DELIVERY_MODE_STARTUP
+						| ((SMP_BOOT_CODE_ADDRESS.as_u64()) >> 12),
 				);
 				debug!("Waiting for it to respond");
 			}

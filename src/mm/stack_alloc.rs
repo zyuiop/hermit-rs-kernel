@@ -1,4 +1,3 @@
-use alloc::fmt::format;
 use core::fmt::{Display, Formatter};
 use core::ops::Add;
 
@@ -6,11 +5,12 @@ use align_address::Align;
 use free_list::{FreeList, PageLayout, PageRange};
 use hermit_sync::InterruptTicketMutex;
 use memory_addresses::{PhysAddr, VirtAddr};
-use x86_64::structures::paging::{Page, PageSize, PageTableFlags, PhysFrame, Size4KiB};
-
+use x86_64::structures::paging::{Page, PageSize, PageTableFlags, Size4KiB};
+#[cfg(feature = "amd-sev")]
+use crate::arch::kernel::amd_sev::set_encrypted;
 use crate::arch::mm::paging;
 use crate::arch::mm::paging::HugePageSize;
-use crate::mm::{virtual_to_physical, virtualmem, FrameAlloc, PageRangeAllocator};
+use crate::mm::{FrameAlloc, PageRangeAllocator, virtualmem};
 
 static MAX_STACK_SIZE: usize = HugePageSize::SIZE as usize;
 #[cfg(target_arch = "aarch64")]
@@ -69,7 +69,12 @@ pub fn allocate_stack(requested_size: usize) -> StackAllocation {
 	paging::unmap::<Size4KiB>(virt_addr_start, pages_with_guard);
 
 	// Map first page to a disabled page full of a marker, then unmap it
-	paging::map::<Size4KiB>(virt_addr_start, phys_addr_start, 1, PageTableFlags::PRESENT | PageTableFlags::WRITABLE);
+	paging::map::<Size4KiB>(
+		virt_addr_start,
+		phys_addr_start,
+		1,
+		PageTableFlags::PRESENT | PageTableFlags::WRITABLE,
+	);
 	unsafe {
 		let marker_pos = virt_addr_start.add(Size4KiB::SIZE as usize - size_of::<u64>());
 		*marker_pos.as_mut_ptr::<u64>() = GUARD_PAGE_MARKER;
@@ -83,11 +88,14 @@ pub fn allocate_stack(requested_size: usize) -> StackAllocation {
 	let flags = PageTableFlags::PRESENT | PageTableFlags::WRITABLE | PageTableFlags::NO_EXECUTE;
 
 	#[cfg(feature = "amd-sev")]
-	{
-		let mut flags = flags;
-		flags.set_encrypted(true);
-	}
-	paging::map::<Size4KiB>(virt_addr_stack_start, phys_addr_stack_start, num_pages, flags);
+	let flags = set_encrypted(flags);
+
+	paging::map::<Size4KiB>(
+		virt_addr_stack_start,
+		phys_addr_stack_start,
+		num_pages,
+		flags,
+	);
 
 	// Clear the stack
 	unsafe {
@@ -102,12 +110,11 @@ pub fn allocate_stack(requested_size: usize) -> StackAllocation {
 		marker_addr.as_mut_ptr::<u64>().write(MARKER);
 	}
 
-
 	StackAllocation {
 		virt_addr: virt_addr_start,
 		phys_addr: phys_addr_start,
 		stack_size: size,
-		weak: false
+		weak: false,
 	}
 }
 
@@ -120,7 +127,7 @@ pub struct StackAllocation {
 	stack_size: usize,
 
 	/// If true, this is a weak reference to a stack that should not be freed
-	weak: bool
+	weak: bool,
 }
 
 impl Drop for StackAllocation {
@@ -134,20 +141,17 @@ impl Drop for StackAllocation {
 		paging::unmap::<Size4KiB>(self.virt_addr, self.stack_size / Size4KiB::SIZE as usize);
 
 		// Release memory
-		let virt_range = PageRange::from_start_len(
-			self.virt_addr.as_usize(),
-			self.stack_size,
-		).unwrap();
+		let virt_range =
+			PageRange::from_start_len(self.virt_addr.as_usize(), self.stack_size).unwrap();
 		unsafe {
-			STACK_FREE_LIST.lock()
+			STACK_FREE_LIST
+				.lock()
 				.deallocate(virt_range)
 				.expect("failed to free stack memory");
 		}
 
-		let phys_range = PageRange::from_start_len(
-			self.phys_addr.as_usize(),
-			self.stack_size,
-		).unwrap();
+		let phys_range =
+			PageRange::from_start_len(self.phys_addr.as_usize(), self.stack_size).unwrap();
 		unsafe {
 			FrameAlloc::deallocate(phys_range);
 		}
@@ -199,7 +203,9 @@ impl StackAllocation {
 
 impl Display for StackAllocation {
 	fn fmt(&self, f: &mut Formatter<'_>) -> core::fmt::Result {
-		write!(f, "Stack Allocation: usable range {:x}..{:x}, guard page: {:x?}",
+		write!(
+			f,
+			"Stack Allocation: usable range {:x}..{:x}, guard page: {:x?}",
 			self.stack_start().as_usize(),
 			self.top_of_stack().as_usize(),
 			self.stack_guard_page()

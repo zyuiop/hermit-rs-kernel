@@ -7,6 +7,8 @@
 
 use core::mem;
 
+#[cfg(feature = "amd-sev")]
+use ghcb::protocols::mmio::MmioWrite;
 use memory_addresses::PhysAddr;
 use virtio::mmio::{
 	DeviceRegisters, DeviceRegistersVolatileFieldAccess, DeviceRegistersVolatileWideFieldAccess,
@@ -17,9 +19,7 @@ use volatile::access::ReadOnly;
 use volatile::{VolatilePtr, VolatileRef};
 
 #[cfg(feature = "amd-sev")]
-use crate::arch::kernel::amd_sev::ghcb_protocol::protocol_mmio::{
-	ghcb_mmio_write, mmio_read_volatile, mmio_write_volatile,
-};
+use crate::arch::kernel::amd_sev::StaticGhcbManager;
 use crate::drivers::InterruptLine;
 #[cfg(feature = "virtio-console")]
 use crate::drivers::console::VirtioConsoleDriver;
@@ -295,7 +295,10 @@ impl NotifCtrl {
 
 		unsafe {
 			#[cfg(feature = "amd-sev")]
-			mmio_write_volatile(notification_data, self.notif_addr).unwrap();
+			ghcb::protocols::mmio::MmioWrite::write::<_, StaticGhcbManager>(
+				notification_data,
+				self.notif_addr,
+			);
 
 			#[cfg(not(feature = "amd-sev"))]
 			self.notif_addr.write_volatile(notification_data);
@@ -359,7 +362,7 @@ impl IsrStatus {
 	pub fn acknowledge(&mut self) -> InterruptStatus {
 		let status = self.is_queue_interrupt();
 		unsafe {
-			mmio_write_volatile(status, self.interrupt_ack).expect("failed to read isr status");
+			MmioWrite::write::<_, StaticGhcbManager>(status, self.interrupt_ack.into());
 		}
 		status
 	}
@@ -368,9 +371,7 @@ impl IsrStatus {
 	#[cfg(feature = "amd-sev")]
 	pub fn acknowledge(&mut self) {
 		let status = self.is_queue_interrupt();
-		unsafe {
-			mmio_write_volatile(status, self.interrupt_ack).expect("failed to read isr status")
-		}
+		unsafe { MmioWrite::write::<_, StaticGhcbManager>(status, self.interrupt_ack.into()) }
 	}
 }
 

@@ -15,6 +15,7 @@ use hermit_entry::boot_info::PlatformInfo;
 use hermit_sync::Lazy;
 use raw_cpuid::*;
 use x86_64::instructions::interrupts::int3;
+#[cfg(not(feature = "amd-sev"))]
 use x86_64::instructions::port::Port;
 use x86_64::instructions::tables::lidt;
 use x86_64::registers::control::{Cr0, Cr0Flags, Cr4, Cr4Flags, Efer, EferFlags};
@@ -24,7 +25,14 @@ use x86_64::registers::segmentation::{FS, GS, Segment64};
 use x86_64::registers::xcontrol::{XCr0, XCr0Flags};
 use x86_64::structures::DescriptorTablePointer;
 use x86_64::{VirtAddr, instructions};
-
+#[cfg(feature = "amd-sev")]
+use ghcb::protocols::GhcbProtocolRequest;
+#[cfg(feature = "amd-sev")]
+use ghcb::protocols::ioio::{IoIoOperation, IoIoRequest};
+#[cfg(feature = "amd-sev")]
+use ghcb::structures::ChannelManager;
+#[cfg(feature = "amd-sev")]
+use crate::arch::kernel::amd_sev::allocations::ghcb::EmergencyChannelManager;
 #[cfg(feature = "acpi")]
 use crate::arch::x86_64::kernel::acpi;
 use crate::arch::x86_64::kernel::{interrupts, pic, pit};
@@ -1082,7 +1090,7 @@ pub fn halt() {
 /// This is the preferred way of shutting down the CPU on firecracker and in QEMU's `microvm` virtual platform.
 ///
 /// See [Triple Faulting the CPU](http://www.rcollins.org/Productivity/TripleFault.html).
-fn triple_fault() -> ! {
+pub(super) fn triple_fault() -> ! {
 	let idt = DescriptorTablePointer {
 		limit: 0,
 		base: VirtAddr::zero(),
@@ -1095,10 +1103,24 @@ fn triple_fault() -> ! {
 /// Writes an exit code into the isa-debug-exit port.
 ///
 /// For a value `e` written into the port, QEMU will exit with `(e << 1) | 1`.
+#[cfg(not(feature = "amd-sev"))]
 fn qemu_exit(success: bool) {
 	let code = if success { 3 >> 1 } else { 0 };
 	unsafe {
 		Port::<u32>::new(0xf4).write(code);
+	}
+}
+
+/// Writes an exit code into the isa-debug-exit port.
+///
+/// For a value `e` written into the port, QEMU will exit with `(e << 1) | 1`.
+#[cfg(feature = "amd-sev")]
+fn qemu_exit(success: bool) {
+	let code = if success { 3 >> 1 } else { 0 };
+	unsafe {
+		EmergencyChannelManager::get_channel().with_ghcb_force(|mut ghcb| {
+			IoIoRequest::new(0xf4, IoIoOperation::DblWordOut(code)).execute_request(&mut ghcb)
+		});
 	}
 }
 

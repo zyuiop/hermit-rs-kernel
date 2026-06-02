@@ -7,7 +7,7 @@ use core::slice;
 use core::sync::atomic::{AtomicPtr, AtomicU32, Ordering};
 
 use hermit_entry::boot_info::{PlatformInfo, RawBootInfo};
-use hermit_sync::{InterruptTicketMutex, RwSpinLock};
+use hermit_sync::InterruptTicketMutex;
 use memory_addresses::PhysAddr;
 use x86_64::registers::control::{Cr0, Cr4};
 
@@ -45,6 +45,9 @@ pub mod vga;
 
 #[cfg(feature = "amd-sev")]
 pub(crate) mod amd_sev;
+
+#[cfg(not(feature = "amd-sev"))]
+pub(crate) mod sev_stub;
 
 pub fn get_ram_address() -> PhysAddr {
 	PhysAddr::new(env::boot_info().hardware_info.phys_addr_range.start)

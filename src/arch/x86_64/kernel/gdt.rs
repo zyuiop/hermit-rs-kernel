@@ -1,6 +1,4 @@
 use alloc::boxed::Box;
-use core::arch::naked_asm;
-use core::sync::atomic::Ordering;
 
 use x86_64::instructions::tables;
 use x86_64::registers::segmentation::{CS, DS, ES, SS, Segment};
@@ -9,11 +7,9 @@ use x86_64::structures::gdt::DescriptorFlags;
 use x86_64::structures::gdt::{Descriptor, GlobalDescriptorTable};
 use x86_64::structures::tss::TaskStateSegment;
 
-use super::CURRENT_STACK_ADDRESS;
 use super::interrupts::{IST_ENTRIES, IST_SIZE};
 use crate::arch::kernel::CURRENT_STACK;
 use crate::arch::x86_64::kernel::core_local::{CoreLocal, core_scheduler};
-use crate::config::KERNEL_STACK_SIZE;
 use crate::mm::stack_alloc::allocate_stack;
 
 pub fn add_current_core() {

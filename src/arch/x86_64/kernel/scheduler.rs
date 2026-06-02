@@ -7,19 +7,14 @@ use crate::arch::interrupts::IST_ENTRIES;
 use crate::arch::x86_64::kernel::core_local::*;
 use crate::arch::x86_64::kernel::{apic, interrupts};
 use crate::arch::x86_64::mm::paging::{
-	BasePageSize, PageSize, PageTableEntryFlags, PageTableEntryFlagsExt,
+	BasePageSize, PageSize,
 };
 use crate::config::*;
-use crate::env;
 use crate::mm::stack_alloc::{allocate_stack, StackAllocation};
-use crate::mm::{FrameAlloc, PageAlloc, PageRangeAllocator};
 use crate::scheduler::task::{Task, TaskFrame};
 use crate::scheduler::{timer_interrupts, PerCoreSchedulerExt};
 use align_address::Align;
-use free_list::{PageLayout, PageRange};
 use memory_addresses::{PhysAddr, VirtAddr};
-use x86_64::structures::paging::page_table::PageTableEntry;
-use x86_64::structures::paging::Size4KiB;
 
 #[repr(C, packed)]
 struct State {

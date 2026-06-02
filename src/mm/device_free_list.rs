@@ -2,15 +2,15 @@ use core::alloc::AllocError;
 
 use align_address::Align;
 use free_list::{FreeList, PageLayout, PageRange};
+use ghcb::protocols::GhcbProtocolRequest;
+#[cfg(feature = "amd-sev")]
+use ghcb::protocols::change_page_state::{ChangePageStateRequest, PageStateChangeOperation};
 use hermit_sync::InterruptTicketMutex;
 use memory_addresses::VirtAddr;
 use x86_64::PhysAddr;
 use x86_64::structures::paging::{PageSize, PhysFrame, Size2MiB};
 
-#[cfg(feature = "amd-sev")]
-use crate::arch::kernel::amd_sev::ghcb_protocol::protocol_page_state_change::{
-	PageStateChangeEntry, PageStateChangeOperation, change_page_states,
-};
+use crate::arch::kernel::amd_sev::StaticGhcbManager;
 use crate::arch::mm::paging;
 use crate::arch::mm::paging::{PageTableEntryFlags, PageTableEntryFlagsExt};
 use crate::mm::device_alloc::DeviceAlloc;
@@ -138,10 +138,13 @@ impl DeviceFreeList {
 
 		// 2. Update the RMP
 		#[cfg(feature = "amd-sev")]
-		change_page_states(&[PageStateChangeEntry::new_for_frame(
-			frame,
-			PageStateChangeOperation::PageAssignShared,
-		)])
+		ChangePageStateRequest::new(&[
+			ghcb::protocols::change_page_state::PageStateChangeEntry::new_for_frame(
+				frame,
+				PageStateChangeOperation::PageAssignShared,
+			),
+		])
+		.execute::<StaticGhcbManager>()
 		.expect("failed to update RMP");
 
 		// 3. Add an entry at the device offset
