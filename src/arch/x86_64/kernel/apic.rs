@@ -40,6 +40,8 @@ use crate::scheduler::CoreId;
 use crate::{arch, env, scheduler};
 #[cfg(feature = "amd-sev")]
 use crate::arch::kernel::amd_sev::ghcb_protocol::protocol_ap_creation::snp_ap_create;
+use crate::arch::kernel::CURRENT_STACK;
+use crate::mm::stack_alloc::allocate_stack;
 
 /// APIC Location and Status (R/W) See Table 35-2. See Section 10.4.4, Local APIC  Status and Location.
 const IA32_APIC_BASE: Msr = Msr::new(0x1b);
@@ -750,10 +752,9 @@ pub fn init_x2apic() {
 /// Initialize the required _start variables for the next CPU to be booted.
 pub fn init_next_processor_variables() {
 	// Allocate stack for the CPU and pass the addresses.
-	let layout = Layout::from_size_align(KERNEL_STACK_SIZE, BasePageSize::SIZE as usize).unwrap();
-	let stack = unsafe { alloc(layout) };
-	assert!(!stack.is_null());
-	CURRENT_STACK_ADDRESS.store(stack, Ordering::Relaxed);
+	let stack = allocate_stack(KERNEL_STACK_SIZE);
+	CURRENT_STACK_ADDRESS.store(stack.stack_start().as_mut_ptr(), Ordering::Relaxed);
+	let _ = CURRENT_STACK.lock().insert(stack);
 }
 
 /// Boot all Application Processors

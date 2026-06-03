@@ -14,7 +14,7 @@ use x86_64::structures::paging::{FrameAllocator, Mapper, OffsetPageTable, Page, 
 
 use crate::arch::x86_64::kernel::processor;
 use crate::arch::x86_64::mm::{PhysAddr, VirtAddr};
-use crate::mm::{FrameAlloc, PageAlloc, PageRangeAllocator};
+use crate::mm::{stack_alloc, FrameAlloc, PageAlloc, PageRangeAllocator};
 use crate::{env, scheduler};
 
 unsafe impl FrameAllocator<Size4KiB> for FrameAlloc {
@@ -101,6 +101,7 @@ impl PageTableEntryFlagsExt for PageTableEntryFlags {
 pub use x86_64::structures::paging::{
 	PageSize, Size1GiB as HugePageSize, Size2MiB as LargePageSize, Size4KiB as BasePageSize,
 };
+use crate::arch::core_local::core_scheduler;
 
 /// Returns a mapping of the physical memory where physical address is equal to the virtual address (no offset)
 pub unsafe fn identity_mapped_page_table() -> OffsetPageTable<'static> {
@@ -299,8 +300,29 @@ pub(crate) extern "x86-interrupt" fn page_fault_handler(
 	stack_frame: ExceptionStackFrame,
 	error_code: PageFaultErrorCode,
 ) {
-	error!("Page fault (#PF)!");
-	error!("page_fault_linear_address = {:p}", Cr2::read().unwrap());
+	let address = Cr2::read().unwrap();
+	let is_kernel_task = core_scheduler().is_idle();
+
+	if is_kernel_task {
+		panic_println!("page_fault_linear_address = {:p}", address);
+		panic_println!("error_code = {error_code:?}");
+		panic_println!("fs = {:#X}", processor::readfs());
+		panic_println!("gs = {:#X}", processor::readgs());
+		panic_println!("stack_frame = {stack_frame:#?}");
+
+		if stack_alloc::is_in_stack_range(address) {
+			panic!("Probable Stack Overflow in kernel (#PF)!");
+		} else {
+			panic!("Page fault (#PF) in kernel!");
+		}
+	}
+
+	if stack_alloc::is_in_stack_range(address) {
+		error!("Probable Stack Overflow (#PF)!");
+	} else {
+		error!("Page fault (#PF)!");
+	}
+	error!("page_fault_linear_address = {:p}", address);
 	error!("error_code = {error_code:?}");
 	error!("fs = {:#X}", processor::readfs());
 	error!("gs = {:#X}", processor::readgs());

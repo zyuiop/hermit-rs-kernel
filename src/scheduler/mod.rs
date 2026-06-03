@@ -31,6 +31,7 @@ use crate::fd::{Fd, RawFd};
 use crate::kernel::scheduler::TaskStacks;
 use crate::scheduler::task::*;
 use crate::{arch, io};
+use crate::arch::interrupts::IST_ENTRIES;
 
 pub mod task;
 pub mod timer_interrupts;
@@ -441,6 +442,10 @@ impl PerCoreScheduler {
 		})
 	}
 
+	pub fn is_idle(&self) -> bool {
+		without_interrupts(|| self.current_task.borrow().id == self.idle_task.borrow().id)
+	}
+
 	#[inline]
 	pub fn get_current_task_id(&self) -> TaskId {
 		without_interrupts(|| self.current_task.borrow().id)
@@ -594,15 +599,15 @@ impl PerCoreScheduler {
 		let current_task_borrowed = self.current_task.borrow();
 		let tss = unsafe { &mut *CoreLocal::get().tss.get() };
 
-		let rsp = current_task_borrowed.stacks.get_kernel_stack()
-			+ current_task_borrowed.stacks.get_kernel_stack_size() as u64
-			- TaskStacks::MARKER_SIZE as u64;
+		let rsp = current_task_borrowed.stacks.get_kernel_stack().top_of_stack();
 		tss.privilege_stack_table[0] = rsp.into();
-		CoreLocal::get().kernel_stack.set(rsp.as_mut_ptr());
-		let ist_start = current_task_borrowed.stacks.get_interrupt_stack()
-			+ current_task_borrowed.stacks.get_interrupt_stack_size() as u64
-			- TaskStacks::MARKER_SIZE as u64;
-		tss.interrupt_stack_table[0] = ist_start.into();
+
+		let _ = CoreLocal::get().kernel_stack.borrow_mut().insert(current_task_borrowed.stacks.get_kernel_stack().weak());
+
+		let interrupt_stacks = current_task_borrowed.stacks.get_interrupt_stacks();
+		for i in 0..IST_ENTRIES {
+			tss.interrupt_stack_table[i] = interrupt_stacks[i].top_of_stack().into();
+		}
 	}
 
 	pub fn set_current_task_priority(&mut self, prio: Priority) {
@@ -640,10 +645,7 @@ impl PerCoreScheduler {
 	pub fn set_current_kernel_stack(&self) {
 		let current_task_borrowed = self.current_task.borrow();
 
-		let stack = (current_task_borrowed.stacks.get_kernel_stack()
-			+ current_task_borrowed.stacks.get_kernel_stack_size() as u64
-			- TaskStacks::MARKER_SIZE as u64)
-			.as_u64();
+		let stack = current_task_borrowed.stacks.get_kernel_stack().top_of_stack().as_u64();
 		CoreLocal::get().kernel_stack.set(stack);
 	}
 
@@ -849,6 +851,7 @@ fn get_tid() -> TaskId {
 pub(crate) fn abort() -> ! {
 	core_scheduler().exit(-1)
 }
+
 
 /// Add a per-core scheduler for the current core.
 pub(crate) fn add_current_core() {

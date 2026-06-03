@@ -46,6 +46,7 @@ mod device_free_list;
 mod page_range_alloc;
 mod physicalmem;
 pub(crate) mod virtualmem;
+pub mod stack_alloc;
 
 use core::alloc::Layout;
 use core::mem::MaybeUninit;
