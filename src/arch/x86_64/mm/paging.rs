@@ -1,5 +1,6 @@
 use core::{fmt, ptr};
 use core::num::NonZeroUsize;
+use core::ops::Add;
 use free_list::PageLayout;
 use x86_64::registers::control::{Cr0, Cr0Flags, Cr2, Cr3};
 #[cfg(feature = "common-os")]
@@ -8,9 +9,9 @@ pub use x86_64::structures::idt::InterruptStackFrame as ExceptionStackFrame;
 use x86_64::structures::idt::PageFaultErrorCode;
 pub use x86_64::structures::paging::PageTableFlags as PageTableEntryFlags;
 use x86_64::structures::paging::frame::PhysFrameRange;
-use x86_64::structures::paging::mapper::{MapToError, MappedFrame, TranslateResult, UnmapError};
+use x86_64::structures::paging::mapper::{MapToError, MappedFrame, MapperFlush, TranslateError, TranslateResult, UnmapError};
 use x86_64::structures::paging::page::PageRange;
-use x86_64::structures::paging::{FrameAllocator, Mapper, OffsetPageTable, Page, PageTable, PageTableFlags, PhysFrame, Size1GiB, Size2MiB, Size4KiB, Translate};
+use x86_64::structures::paging::{FrameAllocator, FrameDeallocator, Mapper, OffsetPageTable, Page, PageTable, PageTableFlags, PhysFrame, Size1GiB, Size2MiB, Size4KiB, Translate};
 
 use crate::arch::x86_64::kernel::processor;
 use crate::arch::x86_64::mm::{PhysAddr, VirtAddr};
@@ -28,6 +29,7 @@ unsafe impl FrameAllocator<Size4KiB> for FrameAlloc {
 		Some(PhysFrame::from_start_address(phys_addr.into()).unwrap())
 	}
 }
+
 
 pub trait PageTableEntryFlagsExt {
 	fn device(&mut self) -> &mut Self;
@@ -101,7 +103,7 @@ impl PageTableEntryFlagsExt for PageTableEntryFlags {
 pub use x86_64::structures::paging::{
 	PageSize, Size1GiB as HugePageSize, Size2MiB as LargePageSize, Size4KiB as BasePageSize,
 };
-use crate::arch::core_local::core_scheduler;
+use crate::arch::core_local::is_kernel_task;
 
 /// Returns a mapping of the physical memory where physical address is equal to the virtual address (no offset)
 pub unsafe fn identity_mapped_page_table() -> OffsetPageTable<'static> {
@@ -172,15 +174,30 @@ pub fn map<S>(
 	where
 		M: Mapper<S>,
 		S: PageSize + fmt::Debug,
+		for<'a> OffsetPageTable<'a>: Mapper<S>,
 	{
 		let mut unmapped = false;
 		for (page, frame) in pages.zip(frames) {
 			// TODO: Require explicit unmaps
-			let unmap = mapper.unmap(page);
-			if let Ok((_frame, flush)) = unmap {
-				unmapped = true;
-				flush.flush();
-				debug!("Had to unmap page {page:?} before mapping.");
+			let unmap_result = mapper.unmap(page);
+			match unmap_result {
+				Ok((_, flush)) => {
+					unmapped = true;
+					flush.flush();
+					debug!("Had to unmap page {page:?} before mapping.");
+				}
+				Err(UnmapError::PageNotMapped) => {
+					// Expected case
+				}
+				Err(UnmapError::ParentEntryHugePage) => {
+					// Must unmap completely
+					unmapped = true;
+					unmap::<S>(page.start_address().into(), 1);
+					debug!("Had to unmap page {page:?} before mapping.");
+				}
+				Err(other) => {
+					panic!("Failed to unmap page during mapping: {other:?}");
+				}
 			}
 
 			let pt_flags = flags
@@ -283,6 +300,115 @@ where
 	}
 }
 
+/// Prepare a new page table
+fn split_page<S: PageSize>(page: Page<S>) {
+	assert_ne!(S::SIZE, Size4KiB::SIZE, "cannot split small page");
+	let is_huge_page = S::SIZE == Size1GiB::SIZE;
+
+	// Allocate new page table, map it temporarily
+	let mut pt_frame: PhysFrame<Size4KiB> = FrameAlloc.allocate_frame().unwrap();
+	let mut pt_page = PageAlloc::allocate(PageLayout::from_size(Size4KiB::SIZE as usize).unwrap()).unwrap();
+	let mut pt_page = VirtAddr::new(pt_page.start() as u64);
+
+	let flags = PageTableEntryFlags::WRITABLE | PageTableEntryFlags::NO_EXECUTE | PageTableEntryFlags::PRESENT;
+
+	#[cfg(feature = "amd-sev")]
+	let flags = {
+		let mut flags = flags;
+		flags.set_encrypted(true);
+		flags
+	};
+
+	map::<Size4KiB>(pt_page, pt_frame.start_address().into(), 1, flags);
+
+	// Fill it with entries
+	let mut table_explorer = unsafe { identity_mapped_page_table() };
+	let (start_addr, flags) = match table_explorer.translate(page.start_address().into()) {
+		TranslateResult::Mapped { frame, flags, .. } => {
+			let start_addr = match frame {
+				MappedFrame::Size2MiB(frame) if S::SIZE == Size2MiB::SIZE => {
+					frame.start_address()
+				}
+				MappedFrame::Size1GiB(frame) if S::SIZE == Size1GiB::SIZE => {
+					frame.start_address()
+				}
+				MappedFrame::Size1GiB(frame) if S::SIZE == Size2MiB::SIZE => {
+					// We were trying to split a large page, and we got a huge page -- we should split it
+					// Split the parent page first, then retry
+					split_page(Page::<Size1GiB>::containing_address(page.start_address().into()));
+					return split_page(page);
+				}
+				other => {
+					panic!("Unexpected frame mapping {other:?} when trying to split {page:?}")
+				}
+			};
+
+			(start_addr, flags)
+		}
+		TranslateResult::NotMapped => {
+			panic!("Tried to split a page that is not mapped!")
+		}
+		TranslateResult::InvalidFrameAddress(addr) => {
+			panic!("Tried to split a page that maps to invalid physical address {addr:x?}")
+		}
+	};
+
+	let flags = if is_huge_page {
+		flags // keep the HUGE flag
+	} else {
+		// Remove the large page flag, because we map to 4KiB frames
+		flags.difference(PageTableEntryFlags::HUGE_PAGE)
+	};
+
+	// Build the page table!
+	let pt = pt_page.as_mut_ptr::<PageTable>();
+	let pt = unsafe {
+		let pt = pt.as_mut().unwrap();
+		pt.zero();
+		pt
+	};
+
+	let child_page_size = if is_huge_page {
+		Size2MiB::SIZE
+	} else {
+		Size4KiB::SIZE
+	};
+
+	for (offset, entry) in pt.iter_mut().enumerate() {
+		let offset = (offset as u64) * child_page_size;
+
+		entry.set_addr(
+			start_addr + offset,
+			flags,
+		)
+	}
+
+	// We can now replace the entry in the page table
+	let offset = table_explorer.phys_offset();
+	let p4 = table_explorer.level_4_table_mut();
+	let p3 = &mut p4[page.p4_index()];
+	let p3 = offset + p3.addr().as_u64();
+	let p3 = unsafe { &mut *p3.as_mut_ptr::<PageTable>() };
+
+	if is_huge_page {
+		let flags = p3[page.p3_index()].flags() - PageTableEntryFlags::HUGE_PAGE;
+		p3[page.p3_index()].set_frame(pt_frame, flags);
+
+	} else {
+		let p2 = &mut p3[page.p3_index()];
+		let p2 = offset + p2.addr().as_u64();
+		let p2 = unsafe { &mut *p2.as_mut_ptr::<PageTable>() };
+
+		let flags = p2[page.start_address().p2_index()].flags() - PageTableEntryFlags::HUGE_PAGE;
+		p2[page.start_address().p2_index()].set_frame(pt_frame, flags);
+	}
+
+	// Unmap temporary pt mapping
+	unmap::<Size4KiB>(pt_page, 1);
+
+	MapperFlush::new(page).flush();
+}
+
 pub fn unmap<S>(virtual_address: VirtAddr, count: usize)
 where
 	S: PageSize + fmt::Debug,
@@ -294,7 +420,10 @@ where
 	let last_page = first_page + count as u64;
 	let range = Page::range(first_page, last_page);
 
-	for page in range {
+	fn unmap_page<S>(page: Page<S>)
+	where
+		S: PageSize + fmt::Debug,
+		for<'a> OffsetPageTable<'a>: Mapper<S>, {
 		let unmap_result = unsafe { identity_mapped_page_table() }.unmap(page);
 		match unmap_result {
 			Ok((_frame, flush)) => flush.flush(),
@@ -303,8 +432,22 @@ where
 			Err(UnmapError::PageNotMapped) => {
 				debug!("Tried to unmap {page:?}, which was not mapped.");
 			}
+			Err(UnmapError::ParentEntryHugePage) if S::SIZE == Size4KiB::SIZE => {
+				// Prepare new page and rety
+				split_page(Page::<Size2MiB>::containing_address(page.start_address().into()));
+				unmap_page(page);
+			}
+			Err(UnmapError::ParentEntryHugePage) if S::SIZE == Size2MiB::SIZE => {
+				// Prepare new page and retry
+				split_page(Page::<Size1GiB>::containing_address(page.start_address().into()));
+				unmap_page(page);
+			}
 			Err(err) => panic!("{err:?}"),
 		}
+	}
+
+	for page in range {
+		unmap_page(page);
 	}
 }
 
@@ -314,7 +457,7 @@ pub(crate) extern "x86-interrupt" fn page_fault_handler(
 	error_code: PageFaultErrorCode,
 ) {
 	let address = Cr2::read().unwrap();
-	let is_kernel_task = core_scheduler().is_idle();
+	let is_kernel_task = is_kernel_task();
 
 	if is_kernel_task {
 		panic_println!("page_fault_linear_address = {:p}", address);
