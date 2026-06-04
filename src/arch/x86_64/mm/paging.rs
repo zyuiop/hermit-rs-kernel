@@ -182,7 +182,20 @@ pub fn map<S>(
 				flush.flush();
 				debug!("Had to unmap page {page:?} before mapping.");
 			}
-			let map = unsafe { mapper.map_to(page, frame, flags, &mut FrameAlloc) };
+
+			let pt_flags = flags
+				& (PageTableFlags::PRESENT
+				| PageTableFlags::WRITABLE
+				| PageTableFlags::USER_ACCESSIBLE);
+
+			#[cfg(feature = "amd-sev")]
+			let pt_flags = {
+				let mut flags = pt_flags;
+				flags.set_encrypted(true);
+				flags
+			};
+
+			let map = unsafe { mapper.map_to_with_table_flags(page, frame, flags, pt_flags, &mut FrameAlloc) };
 			match map {
 				Ok(mapper_flush) => mapper_flush.flush(),
 				Err(err) => panic!("Could not map {page:?} to {frame:?}: {err:?}"),
@@ -480,9 +493,10 @@ unsafe fn encrypt_frame<S: PageSize>(page_table: &mut OffsetPageTable<'static>, 
 	let mut flags = PageTableFlags::PRESENT | PageTableFlags::WRITABLE;
 	flags.set_encrypted(true);
 
-	let Ok(flush) = page_table.map_to(
+	let Ok(flush) = page_table.map_to_with_table_flags(
 		temp_page,
 		temp_frame,
+		flags,
 		flags,
 		&mut FrameAlloc
 	) else {
