@@ -12,9 +12,10 @@ mod start;
 pub mod switch;
 pub mod systemtime;
 use alloc::vec::Vec;
+use core::arch::asm;
 use core::ptr;
 use core::sync::atomic::{AtomicPtr, AtomicU32, AtomicU64, Ordering};
-
+use align_address::Align;
 use memory_addresses::PhysAddr;
 use riscv::register::sstatus;
 
@@ -93,10 +94,55 @@ pub fn get_current_boot_id() -> u32 {
 	CURRENT_BOOT_ID.load(Ordering::Relaxed)
 }
 
+// Detects the top of the stack, using the 0xdeadbeef marker, and assuming the top of the
+// stack is aligned to a page
+fn detect_top_of_stack(stack_ptr: usize) -> usize {
+	let assumed_top = stack_ptr.align_up(0x1000);
+	let ptr = ptr::with_exposed_provenance_mut::<usize>(assumed_top - 8);
+
+	if unsafe { ptr.read() } == 0xdead_beef {
+		return assumed_top;
+	}
+
+	detect_top_of_stack(assumed_top + 1)
+}
+
+fn relocate_stack() {
+	let mut stack_pointer: usize = 0;
+	unsafe {
+		asm!(
+			"mv {}, sp",
+			out(reg) stack_pointer,
+		);
+	}
+	let top_of_stack = detect_top_of_stack(stack_pointer);
+	let new_stack = allocate_stack(KERNEL_STACK_SIZE).leak();
+
+	let stack_len = top_of_stack - stack_pointer;
+	let old_stack = unsafe {
+		core::slice::from_raw_parts::<u8>(ptr::with_exposed_provenance(stack_pointer), stack_len)
+	};
+
+	let new_stack_base = new_stack.top_of_stack() - stack_len;
+	let new_stack = unsafe {
+		core::slice::from_raw_parts_mut::<u8>(new_stack_base.as_mut_ptr(), stack_len)
+	};
+
+	new_stack.copy_from_slice(old_stack);
+
+	let new_stack_base = new_stack_base.as_usize();
+	unsafe {
+		asm!(
+			"mv sp, {}", in(reg) new_stack_base,
+		);
+	}
+}
+
 /// Real Boot Processor initialization as soon as we have put the first Welcome message on the screen.
 pub fn boot_processor_init() {
 	devicetree::init();
 	crate::mm::init();
+	relocate_stack();
 	crate::mm::print_information();
 	interrupts::install();
 

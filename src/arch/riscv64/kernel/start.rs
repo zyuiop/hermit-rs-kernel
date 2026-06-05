@@ -1,4 +1,4 @@
-use core::arch::naked_asm;
+use core::arch::{asm, naked_asm};
 use core::sync::atomic::Ordering;
 
 use hermit_entry::Entry;
@@ -46,6 +46,11 @@ pub unsafe extern "C" fn _start(hart_id: usize, boot_info: Option<&'static RawBo
 		"mv sp, t0",
 		"2:",
 
+		// Write top of stack marker
+		"addi sp, sp, -8",
+		"li t0, 0xdeadbeef",
+		"sd t0, 0(sp)",
+
 		"j {pre_init}",
 		satp_value = sym SATP_VALUE,
 		current_stack_pointer = sym CURRENT_STACK_ADDRESS,
@@ -59,6 +64,16 @@ unsafe extern "C" fn pre_init(hart_id: usize, boot_info: Option<&'static RawBoot
 
 	if CPU_ONLINE.load(Ordering::Acquire) == 0 {
 		crate::logging::KERNEL_LOGGER.set_time(true);
+		let mut sp: usize = 0;
+		unsafe {
+			asm!(
+			"mv {}, sp",
+			out(reg) sp,
+			);
+		}
+
+		println!("SP: {sp:x} {:x?}", unsafe { core::ptr::with_exposed_provenance::<usize>(sp - 8).read() });
+
 
 		env::set_boot_info(*boot_info.unwrap());
 		let fdt = env::fdt().unwrap();
