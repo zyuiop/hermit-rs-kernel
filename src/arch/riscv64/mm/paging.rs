@@ -1,6 +1,6 @@
 use core::marker::PhantomData;
 use core::ptr;
-use core::sync::atomic::{AtomicPtr, AtomicU64, AtomicUsize, Ordering};
+use core::sync::atomic::{AtomicUsize, Ordering};
 use align_address::Align;
 use free_list::PageLayout;
 use hermit_sync::SpinMutex;
