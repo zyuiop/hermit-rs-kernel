@@ -41,8 +41,6 @@
 //! ```
 
 pub(crate) mod device_alloc;
-#[cfg(any(careful, feature = "amd-sev"))]
-mod device_free_list;
 mod page_range_alloc;
 mod physicalmem;
 pub mod stack_alloc;
@@ -61,7 +59,6 @@ use talc::TalcLock;
 #[cfg(target_os = "none")]
 use talc::source::Manual;
 use x86_64::structures::paging::PageTableFlags;
-
 pub use self::page_range_alloc::{PageRangeAllocator, PageRangeBox};
 pub use self::physicalmem::{FrameAlloc, FrameBox};
 pub use self::virtualmem::{PageAlloc, PageBox};
@@ -323,71 +320,44 @@ pub(crate) fn print_information() {
 	info!("{PageAlloc}");
 }
 
-/// Maps a given physical address and size in virtual space and returns address.
-#[cfg(any(feature = "pci", feature = "amd-sev"))]
+/// Maps a given physical address, corresponding to a device, in virtual space and returns address.
+#[cfg(feature = "pci")]
 pub(crate) fn device_map(
 	physical_address: PhysAddr,
 	size: usize,
-	writable: bool,
-	no_execution: bool,
 	no_cache: bool,
 ) -> VirtAddr {
 	use crate::arch::mm::paging::PageTableEntryFlags;
 	#[cfg(target_arch = "x86_64")]
 	use crate::arch::mm::paging::PageTableEntryFlagsExt;
 
-	let mut flags = PageTableEntryFlags::empty();
-	flags.normal();
-	if writable {
-		flags.writable();
-	}
-	if no_execution {
-		flags.execute_disable();
-	}
+	assert!(physical_address.is_aligned_to(BasePageSize::SIZE));
+	let identity_mapping = memory_addresses::VirtAddr::new(physical_address.as_u64());
+
+	let size = size.align_up(BasePageSize::SIZE as usize);
+	let count = size / BasePageSize::SIZE as usize;
+
+	let mut flags = PageTableEntryFlags::WRITABLE | PageTableFlags::NO_EXECUTE;
 	if no_cache {
 		flags.device();
 	}
 
-	device_map_with_flags(physical_address, size, flags)
-}
-
-#[cfg(any(feature = "pci", feature = "amd-sev"))]
-pub(crate) fn device_map_with_flags(
-	physical_address: PhysAddr,
-	size: usize,
-	flags: PageTableFlags,
-) -> VirtAddr {
-	let size = size.align_up(BasePageSize::SIZE as usize);
-	let count = size / BasePageSize::SIZE as usize;
-
-	let virtual_address = if device_alloc::ENABLE_PHYS_OFFSET {
-		DeviceAlloc.virt_addr_from(physical_address)
-	} else {
-		let layout = PageLayout::from_size(size).unwrap();
-		let page_range = PageAlloc::allocate(layout).unwrap();
-		VirtAddr::from(page_range.start())
+	let virtual_address = cfg_select! {
+		feature = "amd-sev" => {
+			VirtAddr::from_ptr(DeviceAlloc.ptr_from::<()>(physical_address))
+		}
+		_ => {{
+			let layout = PageLayout::from_size(size).unwrap();
+			let page_range = PageAlloc::allocate(layout).unwrap();
+			VirtAddr::from(page_range.start())
+		}}
 	};
+
+	// Remove existing identity mapping
+	arch::mm::paging::unmap::<BasePageSize>(identity_mapping, 1);
+
+	// Add new mapping
 	arch::mm::paging::map::<BasePageSize>(virtual_address, physical_address, count, flags);
 
 	virtual_address
-}
-
-#[allow(dead_code)]
-/// Unmaps virtual address, without 'freeing' physical memory it is mapped to!
-pub(crate) fn unmap(virtual_address: VirtAddr, size: usize) {
-	let size = size.align_up(BasePageSize::SIZE as usize);
-
-	if virtual_to_physical(virtual_address).is_some() {
-		arch::mm::paging::unmap::<BasePageSize>(
-			virtual_address,
-			size / BasePageSize::SIZE as usize,
-		);
-
-		let range = PageRange::from_start_len(virtual_address.as_usize(), size).unwrap();
-		unsafe {
-			PageAlloc::deallocate(range);
-		}
-	} else {
-		panic!("No page table entry for virtual address {virtual_address:p}");
-	}
 }

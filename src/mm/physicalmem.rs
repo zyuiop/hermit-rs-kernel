@@ -223,13 +223,7 @@ unsafe fn detect_from_limits() -> Result<(), ()> {
 }
 
 unsafe fn init() {
-	if env::is_uefi() && DeviceAlloc.phys_offset() != VirtAddr::zero() {
-		// Remove all mappings in the device allocator range
-		let start = DeviceAlloc.phys_offset();
-		let count = DeviceAlloc.phys_offset().as_u64() / HugePageSize::SIZE;
-		let count = usize::try_from(count).unwrap();
-		paging::unmap::<HugePageSize>(start, count);
-	}
+	DeviceAlloc::init();
 
 	if unsafe { detect_from_fdt().is_ok() } {
 		return;

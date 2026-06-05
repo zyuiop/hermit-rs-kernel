@@ -155,8 +155,7 @@ impl<T: ConfigRegionAccess> PciDevice<T> {
 		// We therefore do not need to reserve any additional memory in our kernel.
 		// Map bar into RW^X virtual memory
 		let physical_address = address;
-		let virtual_address =
-			crate::mm::device_map(PhysAddr::new(physical_address), size, true, true, no_cache);
+		let virtual_address = crate::mm::device_map(PhysAddr::new(physical_address), size, no_cache);
 
 		Some((virtual_address, size))
 	}
