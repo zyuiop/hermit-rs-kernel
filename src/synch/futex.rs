@@ -1,6 +1,6 @@
 use alloc::collections::LinkedList;
 use alloc::collections::linked_list::CursorMut;
-use core::sync::atomic::AtomicU32;
+use core::sync::atomic::{AtomicU32, AtomicUsize};
 use core::sync::atomic::Ordering::SeqCst;
 
 use hermit_sync::{InterruptSpinMutex, InterruptSpinMutexGuard};
@@ -13,7 +13,37 @@ use crate::scheduler::task::{TaskHandle, TaskHandlePriorityQueue};
 
 struct BucketElem(usize, TaskHandlePriorityQueue);
 
-type Bucket = InterruptSpinMutex<TaskListBucket>;
+struct Bucket {
+	mutex: InterruptSpinMutex<TaskListBucket>,
+	waiters: AtomicUsize
+}
+
+impl Bucket {
+	pub const fn new() -> Self {
+		Self {
+			mutex: InterruptSpinMutex::new(TaskListBucket(LinkedList::new())),
+			waiters: AtomicUsize::new(0)
+		}
+	}
+
+	pub fn has_waiters(&self) -> bool {
+		// Ensure all ready on Waiters have been ack'd
+		self.waiters.load(SeqCst) > 0
+	}
+
+	pub fn decr_waiters(&self) {
+		assert!(self.waiters.fetch_sub(1, SeqCst) > 0);
+	}
+
+	pub fn incr_waiters(&self) {
+		self.waiters.fetch_add(1, SeqCst);
+	}
+
+	#[inline(always)]
+	pub fn lock(&self) -> InterruptSpinMutexGuard<'_, TaskListBucket> {
+		self.mutex.lock()
+	}
+}
 
 #[repr(transparent)]
 struct TaskListBucket(LinkedList<BucketElem>);
@@ -95,7 +125,7 @@ struct BucketList<const N: usize>([Bucket; N]);
 
 impl<const N: usize> BucketList<N> {
 	pub const fn new() -> Self {
-		Self([const { InterruptSpinMutex::new(TaskListBucket(LinkedList::new())) }; N])
+		Self([const { Bucket::new() }; N])
 	}
 
 	fn hash_key(v: usize) -> usize {
@@ -104,12 +134,12 @@ impl<const N: usize> BucketList<N> {
 		hashed % N
 	}
 
-	pub fn lock_bucket(&self, address: usize) -> InterruptSpinMutexGuard<'_, TaskListBucket> {
+	pub fn bucket(&self, address: usize) -> &Bucket {
 		if N == 1 {
-			return self.0[0].lock();
+			return & self.0[0]
 		}
 		let bucket = Self::hash_key(address);
-		self.0[bucket].lock()
+		& self.0[bucket]
 	}
 }
 
@@ -145,9 +175,13 @@ pub(crate) fn futex_wait(
 	flags: Flags,
 ) -> i32 {
 	let address_usize = addr(address);
-	let mut parking_lot = PARKING_LOT.lock_bucket(address_usize);
+	let bucket = PARKING_LOT.bucket(address_usize);
+	bucket.incr_waiters();
+
+	let mut parking_lot = bucket.lock();
 	// Check the futex value after locking the parking lot so that all changes are observed.
 	if address.load(SeqCst) != expected {
+		bucket.decr_waiters();
 		return -i32::from(Errno::Again);
 	}
 
@@ -167,12 +201,13 @@ pub(crate) fn futex_wait(
 		scheduler.reschedule();
 		// Assume this will return immediately (no other task on core!)
 
-		let mut parking_lot = PARKING_LOT.lock_bucket(address_usize);
+		let mut parking_lot = bucket.lock();
 		if matches!(wakeup_time, Some(t) if t <= get_timer_ticks()) {
 			// Timeout occurred, try to remove ourselves from the waiting queue.
 			let was_present = parking_lot.remove_task(address_usize, handle);
 
 			return if was_present {
+                bucket.decr_waiters();
 				-i32::from(Errno::Timedout)
 			} else {
 				// If we are not in the waking queue, this must have been a wakeup.
@@ -209,7 +244,10 @@ pub(crate) fn futex_wait_and_set(
 	new_value: u32,
 ) -> i32 {
 	let address_usize = addr(address);
-	let mut parking_lot = PARKING_LOT.lock_bucket(address_usize);
+	let bucket = PARKING_LOT.bucket(address_usize);
+	bucket.incr_waiters();
+
+	let mut parking_lot = bucket.lock();
 	// Check the futex value after locking the parking lot so that all changes are observed.
 	if address.swap(new_value, SeqCst) != expected {
 		return -i32::from(Errno::Again);
@@ -230,12 +268,13 @@ pub(crate) fn futex_wait_and_set(
 	loop {
 		scheduler.reschedule();
 
-		let mut parking_lot = PARKING_LOT.lock_bucket(address_usize);
+		let mut parking_lot = bucket.lock();
 		if matches!(wakeup_time, Some(t) if t <= get_timer_ticks()) {
 			// Timeout occurred, try to remove ourselves from the waiting queue.
 			let was_present = parking_lot.remove_task(address_usize, handle);
 
 			return if was_present {
+                bucket.decr_waiters();
 				-i32::from(Errno::Timedout)
 			} else {
 				// If we are not in the waking queue, this must have been a wakeup.
@@ -268,7 +307,12 @@ pub(crate) fn futex_wake(address: *const AtomicU32, count: i32) -> i32 {
 	}
 
 	let address_usize = address.addr();
-	let mut parking_lot = PARKING_LOT.lock_bucket(address_usize);
+	let bucket = PARKING_LOT.bucket(address_usize);
+	if !bucket.has_waiters() {
+		return 0;
+	}
+
+	let mut parking_lot = bucket.lock();
 	let Some(mut queue) = parking_lot.get_pop_list(address_usize) else {
 		return 0;
 	};
@@ -277,7 +321,10 @@ pub(crate) fn futex_wake(address: *const AtomicU32, count: i32) -> i32 {
 	let mut woken = 0;
 	while woken != count || count == i32::MAX {
 		match queue.pop() {
-			Some(handle) => scheduler.custom_wakeup(handle),
+			Some(handle) => {
+				bucket.decr_waiters();
+				scheduler.custom_wakeup(handle)
+			},
 			None => break,
 		}
 		woken = woken.saturating_add(1);
@@ -296,7 +343,13 @@ pub(crate) fn futex_wake_or_set(address: &AtomicU32, count: i32, new_value: u32)
 	}
 
 	let address_usize = addr(address);
-	let mut parking_lot = PARKING_LOT.lock_bucket(address_usize);
+	let bucket = PARKING_LOT.bucket(address_usize);
+	if !bucket.has_waiters() {
+		address.store(new_value, SeqCst);
+		return 0;
+	}
+
+	let mut parking_lot = bucket.lock();
 	let Some(mut queue) = parking_lot.get_pop_list(address_usize) else {
 		address.store(new_value, SeqCst);
 		return 0;
@@ -306,7 +359,10 @@ pub(crate) fn futex_wake_or_set(address: &AtomicU32, count: i32, new_value: u32)
 	let mut woken = 0;
 	while woken != count || count == i32::MAX {
 		match queue.pop() {
-			Some(handle) => scheduler.custom_wakeup(handle),
+			Some(handle) => {
+				bucket.decr_waiters();
+				scheduler.custom_wakeup(handle)
+			},
 			None => break,
 		}
 		woken = woken.saturating_add(1);
